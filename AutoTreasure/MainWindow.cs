@@ -165,8 +165,16 @@ public sealed class MainWindow : Window
         ImGui.TableSetupScrollFreeze(0, 1);
         ImGui.TableSetupColumn("物品", ImGuiTableColumnFlags.WidthStretch, 4);
         ImGui.TableSetupColumn("數量", ImGuiTableColumnFlags.WidthStretch, 1);
-        ImGui.TableSetupColumn("出現幾張圖", ImGuiTableColumnFlags.WidthStretch, 1);
-        ImGui.TableHeadersRow();
+        ImGui.TableSetupColumn("開到的圖數", ImGuiTableColumnFlags.WidthStretch, 1);
+        ImGui.TableNextRow(ImGuiTableRowFlags.Headers);
+        string[] tips = ["", "總共拿到幾個", "在幾張圖裡開到過；同一張圖（含它的寶物庫）開到好幾個只算 1"];
+        for (var i = 0; i < tips.Length; i++)
+        {
+            ImGui.TableSetColumnIndex(i);
+            ImGui.TableHeader(ImGui.TableGetColumnName(i));
+            if (tips[i] != "" && ImGui.IsItemHovered())
+                ImGui.SetTooltip(tips[i]);
+        }
         foreach (var (id, (qty, n)) in rows)
         {
             ImGui.TableNextRow();
