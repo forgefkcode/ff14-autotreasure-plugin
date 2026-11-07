@@ -15,6 +15,12 @@ public sealed partial class Runner
     private int _retries, _digOffsetIdx, _walkTries, _favTries;
     private double? _decipherAt, _lastClick, _lastSearch, _leashLogAt, _lastInCombat;
     private string? _travelPhase;
+    // flying to the spot: alternative landing points (the spot, the nearest walkable point, points around it), how many
+    // flights ended far away / landings failed, and whether a flight or landing flight is under way
+    private List<Vector3>? _landingPoints;
+    private int _flyTries, _landTries;
+    private double? _flyAt;
+    private bool _landing;
     private Vector3? _lastFlag, _cofferPos;
     private Step? _resumeState;
     private int _mapCountBefore;
@@ -321,6 +327,28 @@ public sealed partial class Runner
             _spotLogged = true;
         }
         Game.NavMoveTo(target, true);
+        _flyAt = Elapsed;
+    }
+
+    // Where to fly when the spot itself does not work (no flight path to it, or the mount cannot land there): the spot,
+    // the nearest walkable point within 10, then walkable points 8 away on four sides
+    private List<Vector3> LandingPoints()
+    {
+        if (_landingPoints != null)
+            return _landingPoints;
+        var f = Game.FlagPos;
+        var spot = MatchSpot() ?? Game.PointOnFloor(f.X, f.Z) ?? new Vector3(f.X, Game.PlayerPos.Y, f.Z);
+        var up = new Vector3(0, 0.5f, 0);
+        var list = new List<Vector3> { FlagTarget() };
+        if (Game.NearestMeshPoint(spot, 10, 10) is { } near)
+            list.Add(near + up);
+        for (var i = 0; i < 4; i++)
+        {
+            var a = i * MathF.PI / 2;
+            if (Game.NearestMeshPoint(spot + new Vector3(MathF.Sin(a) * 8, 0, MathF.Cos(a) * 8), 5, 10) is { } p)
+                list.Add(p + up);
+        }
+        return _landingPoints = list;
     }
 
     private async Task<Step?> Travel()
@@ -355,14 +383,31 @@ public sealed partial class Runner
         if (!Game.NavReady)
             return null;
 
-        // near the flag: off the mount and walk (flying stops are imprecise); 3 walks, then dig where we stand
+        // near the flag: off the mount and walk (flying stops are imprecise); 3 walks, then dig where we stand.
+        // The mount cannot land everywhere (roofs, slopes, water): when dismounting fails, fly down to the landing points one
+        // by one and try again there
         if (Game.Distance2D(Game.PlayerPos, flag) < _c.WalkRadius)
         {
             if (_travelPhase != "walk")
             {
+                if (_landing && Game.NavRunning)
+                    return TimedOut(Step.TRAVEL) ? Step.ERROR : null;
+                _landing = false;
                 Game.NavStop();
-                if (!await Dismount())
+                if (!await Dismount(_landTries == 0 ? 20 : 8))
+                {
+                    var points = LandingPoints();
+                    if (_landTries >= points.Count)
+                    {
+                        LogError($"藏寶點附近 {points.Count} 個地點都不能降落（離藏寶點 {Game.Distance2D(Game.PlayerPos, flag):F1}）");
+                        return Step.ERROR;
+                    }
+                    var p = points[_landTries++];
+                    Log($"這裡不能下坐騎（離藏寶點 {Game.Distance2D(Game.PlayerPos, flag):F1}），改飛到降落點 {_landTries}/{points.Count} ({p.X:F1}, {p.Y:F1}, {p.Z:F1}) 再下");
+                    Game.NavMoveTo(p, true);
+                    _landing = true;
                     return null;
+                }
                 (_travelPhase, _walkTries) = ("walk", 0);
                 Log("接近藏寶點，下坐騎走過去");
             }
@@ -384,6 +429,25 @@ public sealed partial class Runner
 
         if (!Game.NavRunning)
         {
+            // the flight ended (or never started: no path) far from the spot: fly to the next landing point instead
+            if (_flyAt != null)
+            {
+                if (Elapsed - _flyAt < 2)
+                    return null; // pathfinding may not have started yet
+                var points = LandingPoints();
+                if (_flyTries + 1 >= points.Count)
+                {
+                    LogError($"飛不到藏寶點附近（試了 {points.Count} 個地點，最後停在離藏寶點 {Game.Distance2D(Game.PlayerPos, flag):F0} 外）");
+                    return Step.ERROR;
+                }
+                var p = points[++_flyTries];
+                Log($"飛行停在離藏寶點 {Game.Distance2D(Game.PlayerPos, flag):F0} 外（路線算不出來或飛不過去），改飛到降落點 {_flyTries + 1}/{points.Count} ({p.X:F1}, {p.Y:F1}, {p.Z:F1})");
+                if (!Game.Condition(Cond.Mounted) && !await Mount())
+                    return null;
+                Game.NavMoveTo(p, true);
+                _flyAt = Elapsed;
+                return null;
+            }
             // after the teleport: free to act and mounted before flying (the flight path does not move without a mount)
             if (!Game.PlayerReady || !await Mount())
                 return null;

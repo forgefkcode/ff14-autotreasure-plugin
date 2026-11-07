@@ -1053,6 +1053,7 @@ public sealed partial class Runner
         _enteredAt = Now;
         (_lastPos, _rePathed) = (null, false);
         (_sent, _lastClick, _travelPhase, _decipherAt) = (false, null, null, null);
+        (_landingPoints, _flyTries, _landTries, _flyAt, _landing) = (null, 0, 0, null, false);
         _cityTeleportSent = false;
         (_combatTargeted, _lastEnemyScan, _lastInCombat, _enemySeen) = (false, null, null, false);
         (_pullStart, _pullAt, _pullTries) = (null, null, 0);

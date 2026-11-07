@@ -131,9 +131,9 @@ public sealed partial class Runner
     }
 
     // dismount until really off (in the air the first press only lands)
-    private async Task<bool> Dismount()
+    private async Task<bool> Dismount(int tries = 20)
     {
-        for (var i = 0; i < 20; i++)
+        for (var i = 0; i < tries; i++)
         {
             if (!Game.Condition(Cond.Mounted))
                 return true;

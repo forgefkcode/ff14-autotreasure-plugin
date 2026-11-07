@@ -302,7 +302,7 @@ public static unsafe class Game
         Ipc("vnavmesh.Path.IsRunning", () => Plugin.PluginInterface.GetIpcSubscriber<bool>("vnavmesh.Path.IsRunning").InvokeFunc())
         || Ipc("vnavmesh.SimpleMove.PathfindInProgress", () => Plugin.PluginInterface.GetIpcSubscriber<bool>("vnavmesh.SimpleMove.PathfindInProgress").InvokeFunc());
 
-    public static void NavMoveTo(Vector3 pos, bool fly) =>
+    public static bool NavMoveTo(Vector3 pos, bool fly) =>
         Ipc("vnavmesh.SimpleMove.PathfindAndMoveTo", () => Plugin.PluginInterface.GetIpcSubscriber<Vector3, bool, bool>("vnavmesh.SimpleMove.PathfindAndMoveTo").InvokeFunc(pos, fly));
 
     public static void NavStop()
@@ -320,8 +320,8 @@ public static unsafe class Game
         Ipc("vnavmesh.Query.Mesh.PointOnFloor", () => Plugin.PluginInterface.GetIpcSubscriber<Vector3, bool, float, Vector3?>("vnavmesh.Query.Mesh.PointOnFloor").InvokeFunc(new(x, 1024, z), false, 5));
 
     // the nearest walkable point around (x, y, z); indoors (vault floors stacked on each other) instead of PointOnFloor
-    public static Vector3? NearestMeshPoint(Vector3 p) =>
-        Ipc("vnavmesh.Query.Mesh.NearestPoint", () => Plugin.PluginInterface.GetIpcSubscriber<Vector3, float, float, Vector3?>("vnavmesh.Query.Mesh.NearestPoint").InvokeFunc(p, 3, 6));
+    public static Vector3? NearestMeshPoint(Vector3 p, float halfExtentXZ = 3, float halfExtentY = 6) =>
+        Ipc("vnavmesh.Query.Mesh.NearestPoint", () => Plugin.PluginInterface.GetIpcSubscriber<Vector3, float, float, Vector3?>("vnavmesh.Query.Mesh.NearestPoint").InvokeFunc(p, halfExtentXZ, halfExtentY));
 
     public static void VaultMoveTo(Vector3 p) => NavMoveTo(NearestMeshPoint(p) ?? p, false);
 
