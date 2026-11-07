@@ -1,0 +1,28 @@
+[
+  {
+    "Author": "forgefk",
+    "Name": "AutoTreasure",
+    "InternalName": "AutoTreasure",
+    "AssemblyVersion": "0.1.0.0",
+    "Description": "記錄 G12 / G14 / G15 / G17 寶藏圖的買圖花費（市場板）、挖寶和寶物庫拿到的金幣、寶箱開出的物品。戰利品列表預設只顯示挖寶特有的物品。\n指令：/autotreasure 或 /atr 開關視窗。之後會把 SND 自動挖寶腳本的功能搬進來。",
+    "ApplicableVersion": "any",
+    "RepoUrl": "https://github.com/forgefkcode/ff14-autotreasure-plugin",
+    "Tags": [
+      "treasure",
+      "maps",
+      "tracker"
+    ],
+    "DalamudApiLevel": 13,
+    "LoadRequiredState": 0,
+    "LoadSync": false,
+    "CanUnloadAsync": false,
+    "LoadPriority": 0,
+    "Punchline": "G12 / G14 / G15 / G17 挖寶記帳：買圖花費、挖寶收入、戰利品",
+    "AcceptsFeedback": true,
+    "DownloadLinkInstall": "https://github.com/forgefkcode/ff14-autotreasure-plugin/releases/download/v0.1.0.0/latest.zip",
+    "DownloadLinkUpdate": "https://github.com/forgefkcode/ff14-autotreasure-plugin/releases/download/v0.1.0.0/latest.zip",
+    "DownloadLinkTesting": "https://github.com/forgefkcode/ff14-autotreasure-plugin/releases/download/v0.1.0.0/latest.zip",
+    "IsHide": false,
+    "IsTestingExclusive": false
+  }
+]
