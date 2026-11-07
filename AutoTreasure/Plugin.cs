@@ -56,7 +56,7 @@ public sealed class Plugin : IDalamudPlugin
         _main = new MainWindow(config, _ledger, _tracker, _auto);
         _windows.AddWindow(_main);
 
-        var help = new CommandInfo(OnCommand) { HelpMessage = "開關視窗；start 開始自動挖寶（G17）、stop 停止、resume 強欲陷阱暫停後繼續" };
+        var help = new CommandInfo(OnCommand) { HelpMessage = "開關視窗；start 開始自動挖寶（視窗選的地圖）、stop 停止、resume 強欲陷阱暫停後繼續" };
         CommandManager.AddHandler(Command, help);
         CommandManager.AddHandler(ShortCommand, new CommandInfo(OnCommand) { HelpMessage = "同 " + Command });
         PluginInterface.UiBuilder.Draw += _windows.Draw;

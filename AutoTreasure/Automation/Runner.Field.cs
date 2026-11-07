@@ -83,8 +83,18 @@ public sealed partial class Runner
         if (hasVbm && hasBmr)
             Log("提醒：BossMod 和 BossMod Reborn 同時啟用，兩個會搶著閃避，建議只開一個");
         _bossCmd = bossCmd;
-        // BossMod / BMR only dodge: clear their own rotation preset so they do not fight RSR / Wrath over the skills
-        Game.Command(bossCmd + " ar clear");
+        // BossMod / BMR only dodge: stop their own rotation so they do not fight RSR / Wrath over the skills. BMR: force the
+        // autorotation off and clear the "AI autorotation preset" (saved in its config; with one set, /bmrai on switches the
+        // rotation to it every frame and BMR casts and targets by itself)
+        if (bossCmd == "/bmr")
+        {
+            Game.Command("/bmr ar disable");
+            Game.Command("/bmrai setpresetname null");
+        }
+        else
+        {
+            Game.Command(bossCmd + " ar clear");
+        }
         Log("輸出：" + (rotation == "RotationSolver" ? "RotationSolver Reborn" : "Wrath Combo")
             + "；閃避：" + (bossCmd == "/bmr" ? "BossMod Reborn" : "BossMod") + " AI（只在寶物庫內開）");
 

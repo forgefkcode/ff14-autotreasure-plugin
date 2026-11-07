@@ -8,7 +8,8 @@ public sealed partial class Runner
     private bool _vbmAiOn, _aiSuspended;
     private string _mapItemName = "";
 
-    private bool InDuty() => Game.Territory == _map.VaultTerritory;
+    private VaultKind? Vault => _map.VaultAt(Game.Territory);
+    private bool InDuty() => Vault != null;
     private static bool Busy() => Game.Condition(Cond.BetweenAreas) || Game.Condition(Cond.Casting) || Game.LifestreamBusy;
     private bool HasDecipheredMap() => Game.KeyItemCount(_map.DecipheredItemId) > 0;
     private int UndecipheredCount() => Game.ItemCount(_map.MapItemId);

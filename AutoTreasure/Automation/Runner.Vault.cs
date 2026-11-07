@@ -2,7 +2,7 @@ using Dalamud.Game.ClientState.Objects.Types;
 
 namespace AutoTreasure.Automation;
 
-// Vault steps (door type, Cenote Ja Ja Gural). Each floor:
+// Vault steps. Door type (G12 Dungeons of Lyhe Ghiah, G14 Excitatron 6000, G17 Cenote Ja Ja Gural), each floor:
 //   DUNGEON_CHEST     walk to the chest (some way from the entrance) and interact, which springs the trap
 //   DUNGEON_COMBAT    pull the nearest enemy, the rotation fights, the BossMod AI dodges
 //   DUNGEON_LOOT      wait for the chest to open by itself
@@ -20,7 +20,7 @@ public sealed partial class Runner
     private const int ChestInteractTries = 3, ChestStallsMax = 4;
     private const float ForwardStep = 8, ForwardMax = 60;
     private const uint TomahawkActionId = 46;
-    private const float TomahawkRange = 5;
+    private const float TomahawkRange = 5, TomahawkRangeRoulette = 18; // roulette vaults: Tomahawk's range 20 with a margin
     private const int TomahawkTries = 3;
     private const double TomahawkGiveUp = 25, PullStall = 3;
     private const string ExitPointName = "退出點";
@@ -181,7 +181,7 @@ public sealed partial class Runner
         var me = Game.PlayerPos;
         var dist = Game.Distance2D(me, enemy.Position);
         (_pullLastDist, _pullLastName) = (dist, enemy.Name.TextValue);
-        if (dist > TomahawkRange)
+        if (dist > (Vault == VaultKind.Roulette ? TomahawkRangeRoulette : TomahawkRange))
         {
             if (!_pullApproachLogged)
             {
@@ -215,6 +215,15 @@ public sealed partial class Runner
         return false;
     }
 
+    // roulette vaults look for the monster named in the summon message first (some summons are not of the enemy kind the
+    // scan recognises), then scan
+    private IGameObject? FindVaultEnemy()
+    {
+        if (!string.IsNullOrEmpty(_summonName) && Game.NearestTargetable(_summonName) is { IsDead: false } o)
+            return o;
+        return Game.NearestEnemy(_c.EnemySearchRange);
+    }
+
     private string? FindExitPortal() =>
         new[] { _c.ExitPortalName, ExitPointName }.FirstOrDefault(n => n != "" && Game.NearestTargetable(n) != null);
 
@@ -224,12 +233,88 @@ public sealed partial class Runner
             return TimedOut(Step.DUNGEON_INIT) ? Step.ERROR : null;
         _stage = 1;
         _floorChestPos = null;
+        _lastVaultKind = Vault;
         // a previous vault may have ended between choosing a door and the next floor: forget the door
         (_doorPos, _doorObj, _doorFrom, _doorHint) = (null, null, null, null);
         (_doorTries, _doorOpened, _doorMoveAt) = (0, false, null);
         (_passAnim, _passAnimEnd, _passAnimAt, _passMovePos, _passMoveAt) = (false, null, null, null, null);
         WrathOn(); // rotation and dodge stay on until leaving the vault
         Log("進入寶物庫，開啟自動輸出與閃避");
+        _entryCircleDone = false;
+        if (Vault == VaultKind.Roulette)
+        {
+            Log("這次是轉盤型寶物庫");
+            return Step.DUNGEON_SPHERE;
+        }
+        if (_map.EntryCircle)
+            return Step.DUNGEON_ENTRY;
+        return Step.DUNGEON_CHEST;
+    }
+
+    // G14 floor 1 (the Excitatron's entrance): wait EntryWait s, walk straight ahead along the facing direction (no
+    // pathfinding) and stop as soon as the entry animation starts (lock conditions, or no movement for EntryStall s); after
+    // the animation (no lock condition, free to act, for FloorSettle s) DUNGEON_CHEST looks for the chest
+    private const double EntryWait = 20, EntryStall = 2;
+    private const float EntryDistance = 80;
+    private bool _entryCircleDone, _entryCutscene, _entryWaitLogged;
+    private Vector3? _entryStart, _entryMovePos;
+    private double? _entryMoveAt, _entryEndAt;
+
+    private Step? DungeonEntry()
+    {
+        if (!InDuty())
+            return Step.DUNGEON_EXIT;
+        if (_entryStart == null)
+        {
+            if (Elapsed < EntryWait)
+            {
+                if (!_entryWaitLogged)
+                {
+                    Log($"進入寶物庫，等 {EntryWait} 秒後直線往前走");
+                    _entryWaitLogged = true;
+                }
+                return null;
+            }
+            var p = Game.PlayerPos;
+            _entryStart = p;
+            (_entryMovePos, _entryMoveAt) = (p, Elapsed);
+            if (FacingDir() is not { } dir)
+            {
+                LogError("讀不到角色面向，請手動往前走到傳送法陣上");
+            }
+            else
+            {
+                Log($"往前直走，直到進入動畫（面向 {dir.X:F2}, {dir.Y:F2}）");
+                Game.MoveStraight(new(p.X + dir.X * EntryDistance, p.Y, p.Z + dir.Y * EntryDistance));
+            }
+            return null;
+        }
+        if (!_entryCutscene)
+        {
+            var flags = EntryLockFlags();
+            var me = Game.PlayerPos;
+            if (Game.Distance2D(me, _entryMovePos!.Value) > 0.3f)
+                (_entryMovePos, _entryMoveAt) = (me, Elapsed);
+            if (flags.Count > 0 || Elapsed - _entryMoveAt >= EntryStall)
+            {
+                Game.NavStop();
+                _entryCutscene = true;
+                Log("進入動畫（" + (flags.Count > 0 ? "狀態旗標 " + string.Join(",", flags) : $"角色 {EntryStall} 秒沒移動")
+                    + $"，往前走了 {Game.Distance2D(me, _entryStart.Value):F0} 碼），等動畫結束");
+                return null;
+            }
+            return TimedOut(Step.DUNGEON_ENTRY) ? Step.ERROR : null;
+        }
+        if (EntryLockFlags().Count > 0 || !Game.PlayerReady)
+        {
+            _entryEndAt = null;
+            return TimedOut(Step.DUNGEON_ENTRY) ? Step.ERROR : null;
+        }
+        _entryEndAt ??= Elapsed;
+        if (Elapsed - _entryEndAt < FloorSettle)
+            return null;
+        _entryCircleDone = true;
+        Log("動畫結束，找寶箱位置並導航");
         return Step.DUNGEON_CHEST;
     }
 
@@ -254,9 +339,10 @@ public sealed partial class Runner
             _floorReadyAt = Elapsed;
             _floorEntryPos = Game.PlayerPos;
             _floorFacing = FacingDir();
-            Log(_stage == 1 ? $"進入寶物庫，等 {VaultEntryWait} 秒再走去寶箱" : $"第 {_stage} 層：可以操作了，去找寶箱");
+            var entry = _stage == 1 && !_entryCircleDone;
+            Log(entry ? $"進入寶物庫，等 {VaultEntryWait} 秒再走去寶箱" : $"第 {_stage} 層：可以操作了，去找寶箱");
         }
-        if (Elapsed - _floorReadyAt < (_stage == 1 ? VaultEntryWait : FloorSettle))
+        if (Elapsed - _floorReadyAt < (_stage == 1 && !_entryCircleDone ? VaultEntryWait : FloorSettle))
             return null;
         if (ConfirmYes())
             return null;
@@ -945,7 +1031,7 @@ public sealed partial class Runner
         _pullAttempt ??= 1;
         _attemptStart ??= Elapsed;
         var failed = false;
-        if (Game.NearestEnemy(_c.EnemySearchRange) is { } enemy)
+        if (FindVaultEnemy() is { } enemy)
         {
             if (PullWithTomahawk(enemy))
             {
@@ -979,7 +1065,7 @@ public sealed partial class Runner
             WrathOff(); // back in the field: rotation and dodge off (the dodge AI must not run in the field)
             var reached = Math.Min(_stage, MaxStages);
             _stageLog.Add(reached);
-            Log($"寶物庫結束，到達第 {reached} 層");
+            Log($"寶物庫結束，到達第 {reached} {(_lastVaultKind == VaultKind.Roulette ? "關" : "層")}");
             return Step.CHECK_MAP;
         }
         if (InDuty() && !Busy() && !Game.Condition(Cond.Dead))
@@ -1000,6 +1086,182 @@ public sealed partial class Runner
         return TimedOut(Step.DUNGEON_EXIT) ? Step.ERROR : null;
     }
 
+    // ---------------------------------------------------------------- roulette vaults (G12 Shifting Oubliettes, G15)
+    // DUNGEON_SPHERE (touch the summoning circle) -> DUNGEON_ROULETTE (wait for the roulette) -> DUNGEON_R_COMBAT ->
+    // DUNGEON_R_CHEST -> next stage, at most 5
+
+    private const double StageEndWait = 10;
+    private bool _rouletteStarted, _fought, _pullExhausted;
+    private double? _stageEndCheckAt;
+    private VaultKind? _lastVaultKind;
+
+    private async Task<Step?> DungeonSphere()
+    {
+        if (!InDuty())
+            return Step.DUNGEON_EXIT;
+        _lastVaultKind = VaultKind.Roulette;
+        if (ConfirmYes())
+        {
+            _rouletteStarted = true;
+            return null;
+        }
+        if (_rouletteStarted && !Game.Condition(Cond.OccupiedInEvent))
+        {
+            _rouletteStarted = false;
+            return Step.DUNGEON_ROULETTE;
+        }
+        if (Game.Condition(Cond.InCombat))
+            return Step.DUNGEON_R_COMBAT;
+        // no circle found: the player touches it by hand (up to 180 s), the rest goes on automatically
+        if (Game.NearestTargetable(_c.SphereName) == null)
+        {
+            if (!_manualPrompted)
+            {
+                Log($"找不到「{_c.SphereName}」，請確認 SphereName 或手動點魔法球");
+                _manualPrompted = true;
+            }
+            return Elapsed > 180 ? Step.ERROR : null;
+        }
+        if (!Game.Condition(Cond.OccupiedInEvent))
+            await ApproachAndInteract(_c.SphereName);
+        return TimedOut(Step.DUNGEON_SPHERE) ? Step.ERROR : null;
+    }
+
+    // after the roulette stops the monsters appear (they do not always aggro): scan every 2 s. The summon message also counts
+    // (during the boss's entrance it may not be targetable yet)
+    private Step? DungeonRoulette()
+    {
+        if (!InDuty())
+            return Step.DUNGEON_EXIT;
+        if (Game.Condition(Cond.InCombat))
+            return Step.DUNGEON_R_COMBAT;
+        if (_summoned)
+        {
+            Log("召喚完成，怪物出現");
+            if (_wrathOn != true)
+                WrathOn();
+            return Step.DUNGEON_R_COMBAT;
+        }
+        if (Elapsed > 2 && Elapsed - (_lastEnemyScan ?? -10) > 2)
+        {
+            _lastEnemyScan = Elapsed;
+            if (Game.NearestEnemy(_c.EnemySearchRange) != null)
+            {
+                if (_wrathOn != true)
+                    WrathOn();
+                return Step.DUNGEON_R_COMBAT;
+            }
+        }
+        // waiting long is no error (an error leaves the vault and gives up the rest): keep waiting in the fight step
+        if (TimedOut(Step.DUNGEON_ROULETTE))
+        {
+            Log($"輪盤等了 {Timeouts[Step.DUNGEON_ROULETTE]} 秒還沒看到怪物，改到戰鬥步驟繼續等");
+            return Step.DUNGEON_R_COMBAT;
+        }
+        return null;
+    }
+
+    // roulette fight: pull (summoned name first, then scan) until in combat; the rotation fights; done 3 s out of combat with
+    // no enemy left (another enemy: pull again). Pulled without combat, or no enemy for RouletteWait s: the stage is over if
+    // the summoning circle (stages 1-4) or the exit (stage 5) shows up within StageEndWait s, otherwise error
+    private Step? DungeonRCombat()
+    {
+        if (Game.Condition(Cond.Dead))
+        {
+            LeaveCombat();
+            Log("寶物庫內陣亡，副本結束");
+            return Step.DUNGEON_EXIT;
+        }
+        if (!InDuty())
+        {
+            LeaveCombat();
+            return Step.DUNGEON_EXIT;
+        }
+        if (_wrathOn != true)
+            WrathOn();
+        if (Game.Condition(Cond.InCombat))
+        {
+            if (!_fought)
+                Log("進入戰鬥，交給自動輸出打");
+            (_fought, _lastInCombat) = (true, Elapsed);
+            CombatTick();
+            return null;
+        }
+
+        var enemy = FindVaultEnemy();
+        if (_fought)
+        {
+            if (Elapsed - _lastInCombat < 3)
+                return null;
+            if (enemy == null)
+            {
+                LeaveCombat();
+                Game.Target = null;
+                return Step.DUNGEON_R_CHEST;
+            }
+            Log("還有敵人，重新開怪");
+            (_fought, _pullExhausted, _stageEndCheckAt) = (false, false, null);
+            (_pullStart, _pullAt, _pullTries) = (null, null, 0);
+        }
+
+        if (!_pullExhausted)
+        {
+            if (enemy != null)
+            {
+                _enemySeen = true;
+                if (!PullWithTomahawk(enemy))
+                    return null;
+                _pullExhausted = true;
+                if (Game.Condition(Cond.InCombat))
+                    return null;
+            }
+            else if (Elapsed < _c.RouletteWait)
+            {
+                return null; // no enemy yet (animation)
+            }
+        }
+
+        _stageEndCheckAt ??= Elapsed;
+        if (_stage < MaxStages)
+        {
+            if (Game.NearestTargetable(_c.SphereName) != null)
+            {
+                Log("沒進入戰鬥，但召喚魔法陣已出現，這關結束");
+                LeaveCombat();
+                return Step.DUNGEON_R_CHEST;
+            }
+        }
+        else if (FindExitPortal() != null)
+        {
+            Log("沒進入戰鬥，但退出點已出現，這關結束");
+            LeaveCombat();
+            return Step.DUNGEON_R_CHEST;
+        }
+        if (Elapsed - _stageEndCheckAt < StageEndWait)
+            return null;
+        LogError(_stage < MaxStages ? "沒進入戰鬥，也沒看到召喚魔法陣" : "沒進入戰鬥，也沒看到退出點");
+        return Step.ERROR;
+    }
+
+    // the chest opens by itself after the fight: give it up to VaultChestWait s, then 10 s without a new chest before the next
+    // stage (summoning circle); after stage 5 the exit
+    private Step? DungeonRChest()
+    {
+        if (!InDuty())
+            return Step.DUNGEON_EXIT;
+        _lastChestAt ??= Elapsed;
+        if (Game.NearestTargetable(_c.DungeonChestName) != null && Elapsed < VaultChestWait)
+        {
+            _lastChestAt = Elapsed;
+            return null;
+        }
+        if (Game.Condition(Cond.OccupiedInEvent) || Elapsed - _lastChestAt < 10)
+            return null;
+        Log($"第 {_stage} 關完成");
+        _stage++;
+        return _stage <= MaxStages ? Step.DUNGEON_SPHERE : Step.DUNGEON_EXIT;
+    }
+
     // ---------------------------------------------------------------- error and end
 
     private Step? _errorFrom;
@@ -1011,7 +1273,7 @@ public sealed partial class Runner
         _errors++;
         ErrorCount++;
         LogError($"狀態 {_errorFrom} 失敗（在該步驟第 {_errorAfter:F0} 秒，連續 {_errors}/{_c.MaxErrors}）");
-        (_teleportSent, _digSent) = (false, false);
+        (_teleportSent, _digSent, _rouletteStarted) = (false, false, false);
         try { await CloseMarket(); } catch (Exception e) when (e is not OperationCanceledException) { }
         if (_errors >= _c.MaxErrors)
             return Step.END;
@@ -1067,6 +1329,10 @@ public sealed partial class Runner
         (_chestMovePos, _chestMoveAt, _chestStalls, _finalChestAt) = (null, null, 0, null);
         _passTries = 0;
         (_passAnim, _passAnimEnd, _passAnimAt, _passMovePos, _passMoveAt) = (false, null, null, null, null);
+        (_fought, _pullExhausted, _stageEndCheckAt) = (false, false, null);
+        (_entryStart, _entryCutscene, _entryEndAt, _entryWaitLogged, _entryMovePos, _entryMoveAt) = (null, false, null, false, null, null);
+        if (n == Step.DUNGEON_SPHERE)
+            (_summoned, _summonName) = (false, null);
         if (n == Step.DUNGEON_CHEST)
             (_doorHint, _gambleActive) = (null, false);
         if (n == Step.DUNGEON_GAMBLE)

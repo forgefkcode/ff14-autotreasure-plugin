@@ -22,7 +22,7 @@ public sealed class AutoTab : IDisposable
         if (_runner?.Running == true)
             return;
         _runner?.Dispose();
-        _runner = new Runner(C, MapProfile.G17);
+        _runner = new Runner(C, MapProfile.ByGrade(C.Grade));
         _runner.Start();
     }
 
@@ -32,9 +32,24 @@ public sealed class AutoTab : IDisposable
     public void Draw()
     {
         var running = _runner?.Running == true;
-        ImGui.TextUnformatted("地圖：G17（陳舊的地圖 G17）");
+        var grades = MapProfile.All.Select(m => m.Grade).ToArray();
+        var gi = Math.Max(0, Array.IndexOf(grades, C.Grade));
+        ImGui.BeginDisabled(running);
+        ImGui.SetNextItemWidth(90);
+        if (ImGui.Combo("地圖", ref gi, grades))
+        {
+            C.Grade = grades[gi];
+            _config.Save();
+        }
+        ImGui.EndDisabled();
         ImGui.SameLine();
-        ImGui.TextDisabled("G12 / G14 / G15 之後加入");
+        ImGui.TextDisabled(C.Grade switch
+        {
+            "G12" => "鱷蜥革：寶物庫是選門型或轉盤型（進去才知道）",
+            "G14" => "Kumbhiraskin：驚奇百寶城（選門型）",
+            "G15" => "蛇牛革：厄爾庇斯，寶物庫轉盤型",
+            _ => "Br'aaxskin：Cenote Ja Ja Gural（選門型）",
+        });
 
         if (!running)
         {
@@ -58,7 +73,7 @@ public sealed class AutoTab : IDisposable
                 ImGui.SameLine();
             }
             ImGui.TextColored(running ? new Vector4(0.5f, 1, 0.5f, 1) : new Vector4(0.7f, 0.7f, 0.7f, 1),
-                running ? $"執行中：{r.Current}" : $"已停止（最後：{r.Current}）");
+                running ? $"{r.Grade} 執行中：{r.Current}" : $"已停止（{r.Grade}，最後：{r.Current}）");
             ImGui.TextUnformatted($"完成 {r.MapsDone} 張　寶物庫 {r.DungeonRuns} 次　買圖 {r.MapsBought} 張共 {r.GilSpent:N0} gil　錯誤 {r.ErrorCount} 次　完成 {r.RoundsDone} 輪");
         }
         if (C.AutoBuy && C.MaxMapPrice <= 0)
@@ -222,7 +237,9 @@ public sealed class AutoTab : IDisposable
 
         if (ImGui.CollapsingHeader("寶物庫"))
         {
-            C.EnemyWait = Int("EnemyWait 等怪秒數", C.EnemyWait, "寶物庫戰鬥開始後最多等幾秒找敵人（怪物出現前可能有動畫）", 0, 600);
+            C.EnemyWait = Int("EnemyWait 等怪秒數", C.EnemyWait, "選門型寶物庫戰鬥開始後最多等幾秒找敵人（怪物出現前可能有動畫）", 0, 600);
+            C.RouletteWait = Int("RouletteWait 輪盤等怪", C.RouletteWait, "轉盤型寶物庫（G12 轉盤、G15）戰鬥開始後最多等幾秒找敵人（會先播 30 秒以上的輪盤動畫）", 0, 600);
+            C.SphereName = Text("SphereName 召喚魔法陣", C.SphereName, "轉盤型寶物庫的魔法球物件名稱");
             C.EnemySearchRange = Float("EnemySearchRange 掃描範圍", C.EnemySearchRange, "寶物庫內掃描敵人的範圍（判斷怪物出現、是否打完；不會選取目標）");
             C.DungeonChestName = Text("DungeonChestName 寶箱", C.DungeonChestName, "寶物庫寶箱物件名稱（空白 = 同野外寶箱）");
             C.DoorName = Text("DoorName 門", C.DoorName, "寶物庫兩扇門的物件名稱");
@@ -233,7 +250,7 @@ public sealed class AutoTab : IDisposable
             C.ExitPortalName = Text("ExitPortalName 退出點", C.ExitPortalName, "寶物庫第 5 層後離開用的傳送門物件名稱");
         }
 
-        if (ImGui.CollapsingHeader("強欲陷阱"))
+        if (ImGui.CollapsingHeader("強欲陷阱（選門型）"))
         {
             C.GamblePlay = Bool("GamblePlay 自動玩", C.GamblePlay, "裝了私人 BossMod.Maps（強欲陷阱模組）時照它讀到的牌面自動挑戰、選大小、收手；關閉、沒有模組資料或任何一步失敗都改成放棄");
             C.GambleBigName = Text("GambleBigName 大", C.GambleBigName, "「大」魔法球的物件名稱");

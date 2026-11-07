@@ -8,18 +8,20 @@ public enum Step
 {
     INIT, CHECK_MAP, DECIPHER, LOCATE, TRAVEL, DIG, OPEN_COFFER, FIELD_COMBAT, LOOT, PORTAL_CHECK, ENTER_DUNGEON, DEAD, FIELD_FIGHT,
     PICK_WORLD, WORLD_TRAVEL, MB_TRAVEL, MB_OPEN, MB_SEARCH, MB_LIST, MB_BUY, MB_CLOSE, MB_FAIL,
-    DUNGEON_INIT, DUNGEON_CHEST, DUNGEON_COMBAT, DUNGEON_LOOT, DUNGEON_GAMBLE, DUNGEON_DOOR, DUNGEON_DOOR_WAIT, DUNGEON_PASSAGE,
-    DUNGEON_PULL, DUNGEON_EXIT, ERROR, END,
+    DUNGEON_INIT, DUNGEON_ENTRY, DUNGEON_CHEST, DUNGEON_COMBAT, DUNGEON_LOOT, DUNGEON_GAMBLE, DUNGEON_DOOR, DUNGEON_DOOR_WAIT,
+    DUNGEON_PASSAGE, DUNGEON_PULL, DUNGEON_SPHERE, DUNGEON_ROULETTE, DUNGEON_R_COMBAT, DUNGEON_R_CHEST, DUNGEON_EXIT, ERROR, END,
 }
 
-// The auto-treasure state machine, ported from the SND script G17_AutoTreasure.lua (same steps, timings and log lines).
+// The auto-treasure state machine, ported from the SND scripts G12 / G14 / G15 / G17_AutoTreasure.lua (same steps, timings
+// and log lines; the map differences are in MapProfile).
 // It runs as one async loop on the framework thread: every step handler returns the next step (or null to stay), and the
 // loop waits 0.3 s between handler calls, like the script's main loop. Handlers may await short waits, as the script did
 // with /wait.
 //
 // Flow: buy (market board, optionally on the cheapest world from Universalis) -> decipher -> wait for the flag (XivTreasureParty)
-// -> fly to the spot -> dig -> open the coffer -> fight -> loot -> portal -> vault (chest, fight, Gambler's Lure, pick a door,
-// walk through, x5) -> exit -> next map.
+// -> fly to the spot -> dig -> open the coffer -> fight -> loot -> portal -> vault -> exit -> next map. Door vaults (G12, G14,
+// G17): chest, fight, Gambler's Lure, pick a door, walk through, x5. Roulette vaults (G12, G15): summoning circle, roulette,
+// fight, chest, x5.
 public sealed partial class Runner : IDisposable
 {
     private const uint WarriorJobId = 21;
@@ -34,7 +36,8 @@ public sealed partial class Runner : IDisposable
         [Step.WORLD_TRAVEL] = 300, [Step.MB_TRAVEL] = 120, [Step.MB_OPEN] = 15, [Step.MB_SEARCH] = 180, [Step.MB_LIST] = 15,
         [Step.MB_BUY] = 15, [Step.MB_CLOSE] = 10, [Step.DUNGEON_INIT] = 30, [Step.DUNGEON_COMBAT] = 3600, [Step.DUNGEON_CHEST] = 120,
         [Step.DUNGEON_LOOT] = 180, [Step.DUNGEON_DOOR] = 90, [Step.DUNGEON_DOOR_WAIT] = 60, [Step.DUNGEON_PASSAGE] = 60,
-        [Step.DUNGEON_PULL] = 180, [Step.DUNGEON_EXIT] = 180,
+        [Step.DUNGEON_PULL] = 180, [Step.DUNGEON_EXIT] = 180, [Step.DUNGEON_ENTRY] = 150, [Step.DUNGEON_SPHERE] = 15,
+        [Step.DUNGEON_ROULETTE] = 150, [Step.DUNGEON_R_COMBAT] = 3600, [Step.DUNGEON_R_CHEST] = 120,
     };
 
     // steps that should not have a fight; when attacked in the field, FIELD_FIGHT clears it first and comes back
@@ -212,6 +215,11 @@ public sealed partial class Runner : IDisposable
         Step.MB_CLOSE => MbClose(),
         Step.MB_FAIL => MbFail(),
         Step.DUNGEON_INIT => Sync(DungeonInit),
+        Step.DUNGEON_ENTRY => Sync(DungeonEntry),
+        Step.DUNGEON_SPHERE => DungeonSphere(),
+        Step.DUNGEON_ROULETTE => Sync(DungeonRoulette),
+        Step.DUNGEON_R_COMBAT => Sync(DungeonRCombat),
+        Step.DUNGEON_R_CHEST => Sync(DungeonRChest),
         Step.DUNGEON_CHEST => DungeonChest(),
         Step.DUNGEON_COMBAT => Sync(DungeonCombat),
         Step.DUNGEON_LOOT => DungeonLoot(),
@@ -253,8 +261,8 @@ public sealed partial class Runner : IDisposable
 
     // ---------------------------------------------------------------- chat
 
-    private bool _fieldCleared, _doorOpened, _gambleActive, _resumeRequested, _hlReady;
-    private string? _doorHint;
+    private bool _fieldCleared, _doorOpened, _gambleActive, _resumeRequested, _hlReady, _summoned;
+    private string? _doorHint, _summonName;
     private Hl? _hl;
     private int _hlSeq;
 
@@ -305,6 +313,13 @@ public sealed partial class Runner : IDisposable
             _doorHint = "左側";
         else if (msg.Contains("強欲陷阱發動了", StringComparison.Ordinal))
             _gambleActive = true;
+        else if (msg.Contains("發動了", StringComparison.Ordinal) && msg.Contains("召喚", StringComparison.Ordinal))
+        {
+            // roulette vault: 「發動了上級召喚，金光拉姆帕斯出現了！」 the roulette stopped and the monster appears
+            _summoned = true;
+            var m = System.Text.RegularExpressions.Regex.Match(msg, "召喚，(.+?)出現了");
+            _summonName = m.Success ? m.Groups[1].Value : null;
+        }
         else if (msg.Trim() == "#繼續")
             _resumeRequested = true;
     }
