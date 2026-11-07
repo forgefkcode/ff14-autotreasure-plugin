@@ -6,6 +6,9 @@ public sealed record TreasureMap(string Grade, uint MapItemId, uint DecipheredIt
 
 public static class TreasureMaps
 {
+    public const int VaultFloors = 5; // door vaults: 5 floors; roulette vaults: up to 5 rounds
+    private static readonly ushort[] RouletteVaults = [924, 1123];
+
     public static readonly TreasureMap[] All =
     [
         new("G12", 26745, 2002664, [879, 924]), // The Dungeons / The Shifting Oubliettes of Lyhe Ghiah
@@ -17,4 +20,10 @@ public static class TreasureMaps
     public static TreasureMap? ByMapItem(uint itemId) => All.FirstOrDefault(m => m.MapItemId == itemId);
     public static TreasureMap? ByGrade(string grade) => All.FirstOrDefault(m => m.Grade == grade);
     public static TreasureMap? ByVault(ushort territory) => All.FirstOrDefault(m => m.VaultTerritories.Contains(territory));
+    public static bool IsRoulette(ushort territory) => RouletteVaults.Contains(territory);
+    public static string FloorWord(ushort territory) => IsRoulette(territory) ? "關" : "層";
+
+    // "G12 選門型" where a grade has both kinds, else the grade
+    public static string VaultLabel(TreasureMap map, ushort territory) =>
+        map.VaultTerritories.Length > 1 ? $"{map.Grade} {(IsRoulette(territory) ? "轉盤型" : "選門型")}" : map.Grade;
 }

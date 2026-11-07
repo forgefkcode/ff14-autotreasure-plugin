@@ -84,6 +84,8 @@ public sealed class MainWindow : Window
 
         DrawSummary(purchases, runs);
         ImGui.Spacing();
+        if (ImGui.CollapsingHeader("寶物庫打到第幾層", ImGuiTreeNodeFlags.DefaultOpen))
+            DrawFloors(runs);
         if (ImGui.CollapsingHeader("戰利品", ImGuiTreeNodeFlags.DefaultOpen))
             DrawLoot(runs);
         if (ImGui.CollapsingHeader("每張圖的紀錄"))
@@ -130,6 +132,70 @@ public sealed class MainWindow : Window
         Row("合計", purchases, runs);
         ImGui.EndTable();
         ImGui.TextDisabled("花費＝市場板買圖的價錢加稅；收入＝挖寶和寶物庫拿到的金幣（不含物品）");
+    }
+
+    // per vault kind: how many vaults ended on each floor (door) / round (roulette)
+    private static void DrawFloors(List<Run> runs)
+    {
+        var vaults = runs.Where(r => r.Vault).ToList();
+        if (vaults.Count == 0)
+        {
+            ImGui.TextUnformatted("還沒有寶物庫紀錄");
+            return;
+        }
+        var cols = TreasureMaps.VaultFloors + 3;
+        if (!ImGui.BeginTable("floors", cols, ImGuiTableFlags.Borders | ImGuiTableFlags.RowBg | ImGuiTableFlags.SizingStretchProp))
+            return;
+        ImGui.TableSetupColumn("寶物庫", ImGuiTableColumnFlags.WidthStretch, 2);
+        ImGui.TableSetupColumn("次數", ImGuiTableColumnFlags.WidthStretch, 1);
+        for (var f = 1; f <= TreasureMaps.VaultFloors; f++)
+            ImGui.TableSetupColumn($"停在 {f}", ImGuiTableColumnFlags.WidthStretch, 1);
+        ImGui.TableSetupColumn("平均", ImGuiTableColumnFlags.WidthStretch, 1);
+        ImGui.TableNextRow(ImGuiTableRowFlags.Headers);
+        for (var i = 0; i < cols; i++)
+        {
+            ImGui.TableSetColumnIndex(i);
+            ImGui.TableHeader(ImGui.TableGetColumnName(i));
+            var tip = i switch
+            {
+                0 => "",
+                1 => "進了幾次寶物庫（有記到層數的）",
+                _ when i == cols - 1 => "平均打到第幾層（關）",
+                _ => i - 1 == TreasureMaps.VaultFloors
+                    ? $"打到最後（選門型第 {TreasureMaps.VaultFloors} 層／轉盤型第 {TreasureMaps.VaultFloors} 關）的次數"
+                    : $"停在第 {i - 1} 層（轉盤型是第 {i - 1} 關）就結束的次數",
+            };
+            if (tip != "" && ImGui.IsItemHovered())
+                ImGui.SetTooltip(tip);
+        }
+
+        foreach (var m in TreasureMaps.All)
+            foreach (var t in m.VaultTerritories)
+            {
+                var rs = vaults.Where(r => r.VaultTerritory == t && r.Floor != null).ToList();
+                if (rs.Count == 0)
+                    continue;
+                ImGui.TableNextRow();
+                ImGui.TableNextColumn();
+                ImGui.TextUnformatted(TreasureMaps.VaultLabel(m, t));
+                ImGui.TableNextColumn();
+                ImGui.TextUnformatted(rs.Count.ToString());
+                for (var f = 1; f <= TreasureMaps.VaultFloors; f++)
+                {
+                    var n = rs.Count(r => r.Floor == f);
+                    ImGui.TableNextColumn();
+                    if (n == 0)
+                        ImGui.TextDisabled("-");
+                    else
+                        ImGui.TextUnformatted($"{n}（{n * 100 / rs.Count}%）");
+                }
+                ImGui.TableNextColumn();
+                ImGui.TextUnformatted($"{rs.Average(r => r.Floor!.Value):0.0} {TreasureMaps.FloorWord(t)}");
+            }
+        ImGui.EndTable();
+        var unknown = vaults.Count(r => r.Floor == null);
+        ImGui.TextDisabled("選門型 5 層、選錯門就結束；轉盤型最多 5 關、輪盤沒召喚出魔物就結束"
+            + (unknown > 0 ? $"\n另有 {unknown} 次是這個功能加入前的紀錄，沒有層數" : ""));
     }
 
     private void DrawLoot(List<Run> runs)
@@ -232,7 +298,7 @@ public sealed class MainWindow : Window
             ImGui.TableNextColumn();
             ImGui.TextUnformatted(r.Grade);
             ImGui.TableNextColumn();
-            ImGui.TextUnformatted(r.Vault ? "有" : "");
+            ImGui.TextUnformatted(!r.Vault ? "" : r.Floor is { } floor && r.VaultTerritory is { } t ? $"第 {floor} {TreasureMaps.FloorWord(t)}" : "有");
             ImGui.TableNextColumn();
             ImGui.TextUnformatted(Gil(r.Gil));
             ImGui.TableNextColumn();

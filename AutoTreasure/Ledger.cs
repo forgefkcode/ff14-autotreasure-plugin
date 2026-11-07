@@ -21,6 +21,8 @@ public sealed class Run
     public string Character { get; set; } = "";
     public string Grade { get; set; } = "";
     public bool Vault { get; set; }
+    public ushort? VaultTerritory { get; set; }
+    public int? Floor { get; set; } // how far the vault got: door vaults the floor, roulette vaults the round (1-5)
     public long Gil { get; set; }
     public Dictionary<uint, int> Items { get; set; } = [];
 }

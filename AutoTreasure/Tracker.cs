@@ -3,6 +3,8 @@ using Dalamud.Game.ClientState.Conditions;
 using Dalamud.Game.Inventory;
 using Dalamud.Game.Inventory.InventoryEventArgTypes;
 using Dalamud.Game.Network.Structures;
+using Dalamud.Game.Text;
+using Dalamud.Game.Text.SeStringHandling;
 using Dalamud.Plugin.Services;
 using FFXIVClientStructs.FFXIV.Client.Game;
 
@@ -15,6 +17,8 @@ namespace AutoTreasure;
 //   Entering a vault reopens the grade's last run if it closed less than Reopen ago (the portal after the field coffer).
 //   While a run is open, every gil gain and every item that comes into the inventory counts for it, except items just bought
 //   on the market board.
+//   Vault progress from the system messages: door vaults start on floor 1 and 「打開了通往第二區的大門！」 names the next floor;
+//   roulette vaults count 「發動了…召喚，…出現了！」 (one per round).
 public sealed unsafe class Tracker : IDisposable
 {
     private static readonly TimeSpan Grace = TimeSpan.FromSeconds(180);
@@ -34,6 +38,7 @@ public sealed unsafe class Tracker : IDisposable
     private bool _gilKnown;
     private DateTime _lastActivity;
     private DateTime _countFrom = DateTime.Now + Settle;
+    private int _summons;
 
     public Run? Current { get; private set; }
 
@@ -47,6 +52,7 @@ public sealed unsafe class Tracker : IDisposable
             {
                 Current = last;
                 _lastActivity = DateTime.Now;
+                _summons = last.Floor ?? 0;
             }
             else
             {
@@ -61,6 +67,7 @@ public sealed unsafe class Tracker : IDisposable
         Plugin.MarketBoard.ItemPurchased += OnItemPurchased;
         Plugin.ClientState.Login += OnLogin;
         Plugin.ClientState.Logout += OnLogout;
+        Plugin.ChatGui.ChatMessage += OnChatMessage;
     }
 
     public void Dispose()
@@ -71,6 +78,7 @@ public sealed unsafe class Tracker : IDisposable
         Plugin.MarketBoard.ItemPurchased -= OnItemPurchased;
         Plugin.ClientState.Login -= OnLogin;
         Plugin.ClientState.Logout -= OnLogout;
+        Plugin.ChatGui.ChatMessage -= OnChatMessage;
     }
 
     public string Status()
@@ -140,9 +148,13 @@ public sealed unsafe class Tracker : IDisposable
                     StartRun(vault.Grade, now);
                 }
             }
-            if (!Current!.Vault)
+            var territory = Plugin.ClientState.TerritoryType;
+            if (!Current!.Vault || Current.VaultTerritory != territory)
             {
                 Current.Vault = true;
+                Current.VaultTerritory = territory;
+                Current.Floor = Math.Max(Current.Floor ?? 0, 1);
+                _summons = 0;
                 _ledger.MarkDirty();
             }
             _lastActivity = now;
@@ -173,6 +185,43 @@ public sealed unsafe class Tracker : IDisposable
         _gilKnown = true;
 
         _ledger.SaveIfDirty();
+    }
+
+    private void OnChatMessage(XivChatType type, int timestamp, ref SeString sender, ref SeString message, ref bool isHandled)
+    {
+        // what players say does not count
+        if (type is >= XivChatType.Say and <= XivChatType.CrossLinkShell1 or >= XivChatType.CrossLinkShell2 and <= XivChatType.CrossLinkShell8)
+            return;
+        var territory = Plugin.ClientState.TerritoryType;
+        if (Current is not { Floor: { } floor } run || run.VaultTerritory != territory)
+            return;
+        var msg = message.TextValue;
+        int reached;
+        if (msg.Contains("打開了", StringComparison.Ordinal) && msg.Contains("大門", StringComparison.Ordinal))
+            reached = NamedFloor(msg) ?? floor + 1;
+        else if (TreasureMaps.IsRoulette(territory) && msg.Contains("發動了", StringComparison.Ordinal) && msg.Contains("召喚，", StringComparison.Ordinal))
+            reached = ++_summons;
+        else
+            return;
+        reached = Math.Min(reached, TreasureMaps.VaultFloors);
+        if (reached > floor)
+        {
+            run.Floor = reached;
+            _ledger.MarkDirty();
+        }
+    }
+
+    // 「通往第二區」 -> 2, 「通往最終區」 -> the last floor
+    private static int? NamedFloor(string msg)
+    {
+        if (msg.Contains("最終", StringComparison.Ordinal) || msg.Contains("最後", StringComparison.Ordinal))
+            return TreasureMaps.VaultFloors;
+        var m = System.Text.RegularExpressions.Regex.Match(msg, "第(.)區");
+        if (!m.Success)
+            return null;
+        var c = m.Groups[1].Value[0];
+        var n = "一二三四五".IndexOf(c) + 1;
+        return n > 0 ? n : c is >= '1' and <= '9' ? c - '0' : null;
     }
 
     private static TreasureMap? HeldMap()

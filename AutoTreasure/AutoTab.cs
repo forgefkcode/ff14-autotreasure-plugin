@@ -45,10 +45,10 @@ public sealed class AutoTab : IDisposable
         ImGui.SameLine();
         ImGui.TextDisabled(C.Grade switch
         {
-            "G12" => "鱷蜥革：寶物庫是選門型或轉盤型（進去才知道）",
-            "G14" => "Kumbhiraskin：驚奇百寶城（選門型）",
-            "G15" => "蛇牛革：厄爾庇斯，寶物庫轉盤型",
-            _ => "Br'aaxskin：Cenote Ja Ja Gural（選門型）",
+            "G12" => "鱷蜥革：寶物庫是選門型（5 層）或轉盤型（最多 5 關），進去才知道",
+            "G14" => "Kumbhiraskin：驚奇百寶城（選門型，5 層）",
+            "G15" => "蛇牛革：厄爾庇斯，寶物庫轉盤型（最多 5 關）",
+            _ => "Br'aaxskin：Cenote Ja Ja Gural（選門型，5 層）",
         });
 
         if (!running)
