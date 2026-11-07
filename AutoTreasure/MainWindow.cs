@@ -17,9 +17,11 @@ public sealed class MainWindow : Window
     private readonly Dictionary<uint, string> _names = [];
     private int _range = 1;
     private int _lootGrade;
+    private readonly AutoTab _auto;
 
-    public MainWindow(Configuration config, Ledger ledger, Tracker tracker) : base("挖寶記帳###AutoTreasure")
+    public MainWindow(Configuration config, Ledger ledger, Tracker tracker, AutoTab auto) : base("AutoTreasure 自動挖寶###AutoTreasure")
     {
+        _auto = auto;
         _config = config;
         _ledger = ledger;
         _tracker = tracker;
@@ -50,7 +52,29 @@ public sealed class MainWindow : Window
 
     public override void Draw()
     {
-        ImGui.TextColored(new Vector4(0.6f, 1, 0.6f, 1), $"目前：{_tracker.Status()}");
+        if (!ImGui.BeginTabBar("tabs"))
+            return;
+        if (ImGui.BeginTabItem("自動挖寶"))
+        {
+            _auto.Draw();
+            ImGui.EndTabItem();
+        }
+        if (ImGui.BeginTabItem("記帳"))
+        {
+            DrawLedger();
+            ImGui.EndTabItem();
+        }
+        if (ImGui.BeginTabItem("設定"))
+        {
+            _auto.DrawSettings();
+            ImGui.EndTabItem();
+        }
+        ImGui.EndTabBar();
+    }
+
+    private void DrawLedger()
+    {
+        ImGui.TextColored(new Vector4(0.6f, 1, 0.6f, 1), $"記帳：{_tracker.Status()}");
         ImGui.SetNextItemWidth(140);
         ImGui.Combo("期間", ref _range, RangeNames);
 
