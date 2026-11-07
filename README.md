@@ -5,23 +5,39 @@ G12 / G14 / G15 / G17 寶藏圖的自動挖寶和記帳插件。
 - **自動挖寶**：目前只有 G17，從 [SND 自動挖寶腳本](https://github.com/forgefkcode/ff14-autotreasure) 的 G17_AutoTreasure.lua 搬過來，流程和設定都一樣。G12 / G14 / G15 之後加入。
 - **記帳**：四張圖都記，自己挖或用 SND 腳本挖都會記到。
 
-## 安裝
+## 安裝（台服，Dalamud API 13）
 
-Dalamud 設定 → 實驗性功能 → 自訂插件庫，加入下面的網址並儲存，再到插件安裝器搜尋 **AutoTreasure**：
+自動挖寶要用到的插件全部都在這個插件庫裡，加一個網址就好。
 
-```
-https://raw.githubusercontent.com/forgefkcode/ff14-autotreasure-plugin/main/repo.json
-```
+1. 遊戲裡輸入 `/xlsettings` → 「實驗性功能」分頁 → 「自訂插件庫」，貼上下面的網址、勾選啟用、按儲存：
+
+   ```
+   https://raw.githubusercontent.com/forgefkcode/ff14-autotreasure-plugin/main/repo.json
+   ```
+
+2. `/xlplugins` 打開插件安裝器，安裝：
+
+   | 插件 | 用途 | |
+   | --- | --- | --- |
+   | AutoTreasure | 自動挖寶、記帳 | 必裝 |
+   | vnavmesh | 走路、飛行導航 | 必裝 |
+   | Lifestream | 傳送、換伺服器 | 必裝 |
+   | Rotation Solver Reborn **或** Wrath Combo | 自動輸出 | 二選一，不要兩個都開 |
+   | Boss Mod **或** Boss Mod Reborn | 閃避 AOE（寶物庫內才開） | 二選一；要用 BossMod.Maps 選 Boss Mod |
+   | XivTreasureParty（藏寶圖工具小幫手） | 解讀後自動插旗 | 建議裝，沒裝要自己插旗 |
+
+3. （建議）AutoTreasure 視窗 →「設定」分頁 →「BossMod.Maps 模組包」按「安裝」，再到 `/xlplugins` 把 Boss Mod 停用、啟用一次。這是 G12～G17 寶物庫的閃避模組和強欲陷阱讀牌；沒裝的話強欲陷阱一律放棄。
+
+這些插件不是放在這裡的檔案：插件庫的項目每 6 小時從原本的台服插件庫（[cycleapple](https://github.com/cycleapple/DalamudPlugins-TW-API13-Extended)、[lilasrepo](https://github.com/lilasrepo/DalamudPlugins)）同步一次，下載也是從那裡，所以原作者更新後這裡也會跟著更新。已經加了那兩個插件庫的人，安裝器裡會看到兩份同名插件，裝哪一份都可以。
 
 指令：`/autotreasure` 或 `/atr` 開關視窗；`/atr start` 開始、`/atr stop` 停止、`/atr resume` 強欲陷阱暫停後繼續。
 
 ## 自動挖寶（G17）
 
-需要的插件：vnavmesh、Lifestream、RotationSolver Reborn 或 Wrath Combo、BossMod 或 BossMod Reborn；建議裝 XivTreasureParty（解讀後自動插旗）。強欲陷阱自動玩要裝私人的 BossMod.Maps，沒裝就一律放棄。
-
-1. 「設定」分頁填 **MaxMapPrice**（每張圖最多付多少 gil），其他設定跟 SND 腳本一樣，滑鼠移到項目上有說明。
-2. 市場板把 G17 地圖加入「我的最愛」。
-3. 「自動挖寶」分頁按「開始」。不要同時跑 SND 的 G17 腳本。
+1. 職業要有**戰士**的套裝（開始時會自動換成戰士）。
+2. 「設定」分頁填 **MaxMapPrice**（每張圖最多付多少 gil），其他設定滑鼠移到項目上有說明。預設在利姆薩·羅敏薩下層甲板買圖、會跨伺服器找最便宜的。
+3. 市場板把 G17 地圖（陳舊的地圖G17）加入「我的最愛」。
+4. 「自動挖寶」分頁按「開始」。不要同時跑 SND 的 G17 腳本。
 
 跟 SND 腳本的差別：
 
@@ -49,6 +65,10 @@ https://raw.githubusercontent.com/forgefkcode/ff14-autotreasure-plugin/main/repo
 
 - 進行中賣東西給 NPC 的金幣也會算進收入。
 - 開別人的圖（組隊挖寶）自己沒有解讀後的地圖，只有進寶物庫的部分會記到。
+
+## 第三方授權
+
+見 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
 
 ## 建置
 

@@ -64,6 +64,8 @@ public sealed class AutoTab : IDisposable
         if (C.AutoBuy && C.MaxMapPrice <= 0)
             ImGui.TextColored(new Vector4(1, 0.6f, 0.4f, 1), "自動買圖要先在「設定」填每張圖最多付多少 gil（MaxMapPrice）");
         ImGui.TextDisabled("需要：vnavmesh、Lifestream、RotationSolver Reborn 或 Wrath Combo、BossMod 或 BossMod Reborn；建議 XivTreasureParty");
+        if (C.GamblePlay && !PackInstaller.Installed)
+            ImGui.TextDisabled("沒裝 BossMod.Maps，強欲陷阱會一律放棄（「設定」分頁可以安裝）");
 
         ImGui.Separator();
         if (ImGui.BeginChild("log", new Vector2(0, 0), true))
@@ -83,6 +85,34 @@ public sealed class AutoTab : IDisposable
             }
         }
         ImGui.EndChild();
+    }
+
+    // ---------------------------------------------------------------- BossMod.Maps
+
+    private static void DrawPack()
+    {
+        ImGui.TextWrapped("G12 / G14 / G15 / G17 寶物庫的閃避模組，和強欲陷阱讀牌（自動玩強欲陷阱要用）。裝在 Boss Mod（不是 Boss Mod Reborn）上。");
+        var bm = PackInstaller.BossModVersion();
+        if (bm == null)
+            ImGui.TextColored(new Vector4(1, 0.6f, 0.4f, 1), "沒有安裝 Boss Mod：請先從插件庫裝 Boss Mod [TC api13]");
+        else if (bm != PackInstaller.BuiltFor)
+            ImGui.TextColored(new Vector4(1, 0.8f, 0.4f, 1), $"Boss Mod 是 {bm}，模組包是給 {PackInstaller.BuiltFor} 編的，可能載入失敗");
+        ImGui.TextUnformatted(PackInstaller.Installed ? $"狀態：已安裝（{File.GetLastWriteTime(PackInstaller.FilePath):yyyy/MM/dd HH:mm}）" : "狀態：未安裝");
+        ImGui.BeginDisabled(PackInstaller.Busy);
+        if (ImGui.Button(PackInstaller.Installed ? "更新" : "安裝"))
+            _ = PackInstaller.Install();
+        if (PackInstaller.Installed)
+        {
+            ImGui.SameLine();
+            if (ImGui.Button("移除") && ImGui.GetIO().KeyCtrl)
+                PackInstaller.Remove();
+            if (ImGui.IsItemHovered())
+                ImGui.SetTooltip("按住 Ctrl 再點");
+        }
+        ImGui.EndDisabled();
+        if (PackInstaller.Status != "")
+            ImGui.TextWrapped(PackInstaller.Status);
+        ImGui.Spacing();
     }
 
     // ---------------------------------------------------------------- settings
@@ -147,6 +177,9 @@ public sealed class AutoTab : IDisposable
     {
         _changed = false;
         ImGui.TextDisabled("滑鼠移到項目上看說明。執行中改設定會馬上生效。");
+
+        if (ImGui.CollapsingHeader("BossMod.Maps 模組包", ImGuiTreeNodeFlags.DefaultOpen))
+            DrawPack();
 
         if (ImGui.CollapsingHeader("基本", ImGuiTreeNodeFlags.DefaultOpen))
         {
