@@ -12,8 +12,8 @@ public sealed partial class Runner
     private readonly HashSet<uint> _badWorlds = [];
     private uint _targetWorld;
     private string _targetWorldName = "";
-    private int _retries, _digOffsetIdx, _walkTries, _favTries;
-    private double? _decipherAt, _lastClick, _lastSearch, _leashLogAt, _lastInCombat;
+    private int _retries, _digOffsetIdx, _walkTries, _favTries, _leashTries;
+    private double? _decipherAt, _lastClick, _lastSearch, _leashLogAt, _lastInCombat, _leashMoveAt;
     private string? _travelPhase;
     // flying to the spot: alternative landing points (the spot, the nearest walkable point, points around it), how many
     // flights ended far away / landings failed, and whether a flight or landing flight is under way
@@ -516,10 +516,13 @@ public sealed partial class Runner
         return TimedOut(Step.OPEN_COFFER) ? Step.ERROR : null;
     }
 
-    // field fight: do not stray from the coffer (too far resets the trap fight, and the coffer must stay easy to find); past
-    // LeashRadius walk back. With the dodge AI on (FieldDodge) the limit is FieldDodgeRadius: past it the AI goes off (it would
-    // pull the character back) and the walk back goes to half of it, so the AI has room before the next walk; CombatTick turns
-    // the AI back on once there.
+    // field fight: do not stray from the coffer (too far resets the trap fight, and the coffer must stay easy to find). Past
+    // the limit (LeashRadius; FieldDodgeRadius with the dodge AI on) the AI goes off and the character walks all the way back
+    // to where the coffer was opened (within CofferArrive), then CombatTick turns the AI back on. Stopping at the limit left
+    // the character standing on the edge. The walk uses the nearest walkable point (PointOnFloor searches down from the sky
+    // and can pick a roof or a tree); a path that does not get there is retried in a straight line.
+    private const float CofferArrive = 3;
+
     private void StayNearCoffer()
     {
         if (_cofferPos is not { } anchor || InDuty())
@@ -527,29 +530,32 @@ public sealed partial class Runner
         var dodge = _c.FieldDodge && Current == Step.FIELD_COMBAT && BossAiCmd(true) != null;
         var radius = dodge ? Math.Min(_c.FieldDodgeRadius, _c.LeashRadius) : _c.LeashRadius;
         var dist = Game.Distance2D(Game.PlayerPos, anchor);
-        if (dist <= (_leashing && dodge ? radius / 2 : radius))
+        if (_leashing && dist <= CofferArrive)
         {
-            if (_leashing)
-            {
-                Game.NavStop();
-                _leashing = false;
-            }
+            Game.NavStop();
+            _leashing = false;
+            Log(dodge ? "回到寶箱旁，打開閃避 AI" : "回到寶箱旁");
             return;
         }
-        if (_leashing && dist <= radius && Game.NavRunning)
-            return; // on the way back, inside the limit
-        if (dodge)
-            SuspendAi();
-        if (!Game.NavRunning)
+        if (!_leashing && dist <= radius)
+            return;
+        SuspendAi();
+        if (!_leashing)
         {
-            if (!_leashing && Now - (_leashLogAt ?? -100) > 10)
+            _leashing = true;
+            (_leashTries, _leashMoveAt) = (0, null);
+            if (Now - (_leashLogAt ?? -100) > 10)
             {
-                Log(dodge ? $"閃避時離寶箱 {dist:F1} 碼，先關閃避 AI 走回去" : "離寶箱太遠，走回去");
+                Log($"離寶箱 {dist:F1} 碼（上限 {radius:0.#}），" + (dodge ? "先關閃避 AI，" : "") + "走回寶箱旁");
                 _leashLogAt = Now;
             }
-            Game.NavMoveTo(Game.PointOnFloor(anchor.X, anchor.Z) ?? anchor, false);
-            _leashing = true;
         }
+        if (Game.NavRunning || Now - (_leashMoveAt ?? -100) < 1)
+            return;
+        _leashMoveAt = Now;
+        _leashTries++;
+        if (_leashTries % 3 == 0 || !Game.NavMoveTo(Game.NearestMeshPoint(anchor) ?? anchor, false))
+            Game.MoveStraight(anchor);
     }
 
     // in combat: let go of a targeted coffer (the rotation does not pick enemies while a coffer is targeted); targeting is

@@ -229,8 +229,8 @@ public sealed class AutoTab : IDisposable
             C.FlagWait = Int("FlagWait 等旗標秒數", C.FlagWait, "解讀後等藏寶點旗標的秒數（XivTreasureParty 自動打，或你手動插）", 0, 3600);
             C.WalkRadius = Float("WalkRadius 下坐騎距離", C.WalkRadius, "飛到離旗標多近就下坐騎改走路");
             C.DigRadius = Float("DigRadius 開挖距離", C.DigRadius, "距離旗標多近開始挖寶");
-            C.LeashRadius = Float("LeashRadius 離寶箱上限", C.LeashRadius, "野外戰鬥時離寶箱多遠就走回去，太遠陷阱戰鬥會被重置");
-            C.FieldDodge = Bool("FieldDodge 野外閃避（測試）", C.FieldDodge, "野外開寶箱跑出來的陷阱魔物也開 BossMod 閃避 AI（原本只在寶物庫內開）。離寶箱超過 FieldDodgeRadius 會先關掉 AI 走回去，回到一半距離內再打開");
+            C.LeashRadius = Float("LeashRadius 離寶箱上限", C.LeashRadius, "野外戰鬥時離寶箱多遠就走回寶箱旁，太遠陷阱戰鬥會被重置");
+            C.FieldDodge = Bool("FieldDodge 野外閃避（測試）", C.FieldDodge, "野外開寶箱跑出來的陷阱魔物也開 BossMod 閃避 AI（原本只在寶物庫內開）。離寶箱超過 FieldDodgeRadius 會先關掉 AI 走回寶箱旁，到了再打開");
             C.FieldDodgeRadius = Float("FieldDodgeRadius 閃避範圍", C.FieldDodgeRadius, "野外閃避時離寶箱最遠幾碼（不會超過 LeashRadius）");
             C.FieldLootDelay = Int("FieldLootDelay 開箱前等待", C.FieldLootDelay, "野外打完怪後等幾秒再開寶箱", 0, 120);
             C.PortalWait = Int("PortalWait 等傳送門", C.PortalWait, "開箱後等待傳送門出現的秒數", 0, 300);
