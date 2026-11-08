@@ -97,7 +97,7 @@ public sealed partial class Runner
         }
         Log("輸出：" + (rotation == "RotationSolver" ? "RotationSolver Reborn" : "Wrath Combo")
             + "；閃避：" + (bossCmd == "/bmr" ? "BossMod Reborn" : "BossMod") + " AI（"
-            + (_c.FieldDodge ? $"寶物庫內和野外寶箱戰鬥開，野外離寶箱 {_c.FieldDodgeRadius:0.#} 碼內" : "只在寶物庫內開") + "）");
+            + (_c.FieldDodge ? $"寶物庫內和野外寶箱戰鬥開，野外離寶箱 {_c.LeashRadius:0.#} 碼內" : "只在寶物庫內開") + "）");
 
         if (_c.AutoBuy && _c.MaxMapPrice <= 0)
         {
@@ -517,7 +517,8 @@ public sealed partial class Runner
     }
 
     // field fight: do not stray from the coffer (too far resets the trap fight, and the coffer must stay easy to find). Past
-    // the limit (LeashRadius; FieldDodgeRadius with the dodge AI on) the AI goes off and the character walks all the way back
+    // LeashRadius (also with the dodge AI on: a tighter limit of 8 kept pulling the AI back, about 10 s of uptime lost per
+    // fight against the ~5 min coffer timer) the AI goes off and the character walks all the way back
     // to where the coffer was opened (within CofferArrive), then CombatTick turns the AI back on. Stopping at the limit left
     // the character standing on the edge. The walk uses the nearest walkable point (PointOnFloor searches down from the sky
     // and can pick a roof or a tree); a path that does not get there is retried in a straight line.
@@ -528,7 +529,7 @@ public sealed partial class Runner
         if (_cofferPos is not { } anchor || InDuty())
             return;
         var dodge = _c.FieldDodge && Current == Step.FIELD_COMBAT && BossAiCmd(true) != null;
-        var radius = dodge ? Math.Min(_c.FieldDodgeRadius, _c.LeashRadius) : _c.LeashRadius;
+        var radius = _c.LeashRadius;
         var dist = Game.Distance2D(Game.PlayerPos, anchor);
         if (_leashing && dist <= CofferArrive)
         {
