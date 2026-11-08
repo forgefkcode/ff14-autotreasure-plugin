@@ -96,7 +96,8 @@ public sealed partial class Runner
             Game.Command(bossCmd + " ar clear");
         }
         Log("輸出：" + (rotation == "RotationSolver" ? "RotationSolver Reborn" : "Wrath Combo")
-            + "；閃避：" + (bossCmd == "/bmr" ? "BossMod Reborn" : "BossMod") + " AI（只在寶物庫內開）");
+            + "；閃避：" + (bossCmd == "/bmr" ? "BossMod Reborn" : "BossMod") + " AI（"
+            + (_c.FieldDodge ? $"寶物庫內和野外寶箱戰鬥開，野外離寶箱 {_c.FieldDodgeRadius:0.#} 碼內" : "只在寶物庫內開") + "）");
 
         if (_c.AutoBuy && _c.MaxMapPrice <= 0)
         {
@@ -515,12 +516,18 @@ public sealed partial class Runner
         return TimedOut(Step.OPEN_COFFER) ? Step.ERROR : null;
     }
 
-    // field fight: do not stray from the coffer (too far resets the trap fight); past LeashRadius walk back
+    // field fight: do not stray from the coffer (too far resets the trap fight, and the coffer must stay easy to find); past
+    // LeashRadius walk back. With the dodge AI on (FieldDodge) the limit is FieldDodgeRadius: past it the AI goes off (it would
+    // pull the character back) and the walk back goes to half of it, so the AI has room before the next walk; CombatTick turns
+    // the AI back on once there.
     private void StayNearCoffer()
     {
         if (_cofferPos is not { } anchor || InDuty())
             return;
-        if (Game.Distance2D(Game.PlayerPos, anchor) <= _c.LeashRadius)
+        var dodge = _c.FieldDodge && Current == Step.FIELD_COMBAT && BossAiCmd(true) != null;
+        var radius = dodge ? Math.Min(_c.FieldDodgeRadius, _c.LeashRadius) : _c.LeashRadius;
+        var dist = Game.Distance2D(Game.PlayerPos, anchor);
+        if (dist <= (_leashing && dodge ? radius / 2 : radius))
         {
             if (_leashing)
             {
@@ -529,11 +536,15 @@ public sealed partial class Runner
             }
             return;
         }
+        if (_leashing && dist <= radius && Game.NavRunning)
+            return; // on the way back, inside the limit
+        if (dodge)
+            SuspendAi();
         if (!Game.NavRunning)
         {
             if (!_leashing && Now - (_leashLogAt ?? -100) > 10)
             {
-                Log("離寶箱太遠，走回去");
+                Log(dodge ? $"閃避時離寶箱 {dist:F1} 碼，先關閃避 AI 走回去" : "離寶箱太遠，走回去");
                 _leashLogAt = Now;
             }
             Game.NavMoveTo(Game.PointOnFloor(anchor.X, anchor.Z) ?? anchor, false);

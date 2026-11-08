@@ -25,6 +25,8 @@ public sealed class AutoConfig
     public float WalkRadius { get; set; } = 15;
     public float DigRadius { get; set; } = 3;
     public float LeashRadius { get; set; } = 15;
+    public bool FieldDodge { get; set; } = true;
+    public float FieldDodgeRadius { get; set; } = 8;
     public int FieldLootDelay { get; set; } = 5;
     public int PortalWait { get; set; } = 10;
     public int EnemyWait { get; set; } = 20;

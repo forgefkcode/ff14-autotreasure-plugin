@@ -11,12 +11,14 @@ public sealed partial class Runner
     private VaultKind? Vault => _map.VaultAt(Game.Territory);
     private bool InDuty() => Vault != null;
     private static bool Busy() => Game.Condition(Cond.BetweenAreas) || Game.Condition(Cond.Casting) || Game.LifestreamBusy;
+    private bool AiAllowed() => InDuty() || _c.FieldDodge && Current == Step.FIELD_COMBAT && _cofferPos != null;
     private bool HasDecipheredMap() => Game.KeyItemCount(_map.DecipheredItemId) > 0;
     private int UndecipheredCount() => Game.ItemCount(_map.MapItemId);
 
     // ---------------------------------------------------------------- rotation and AI dodge
     // Rotation: RotationSolver Reborn (/rotation Auto|Off) or Wrath Combo (/wrath auto on|off). Dodge: BossMod (/vbm ai on|off) or
-    // BossMod Reborn (/bmrai on|off), only inside the vault: in the field the AI fights "walk back to the coffer".
+    // BossMod Reborn (/bmrai on|off), inside the vault and (FieldDodge, test) in the field coffer fight; there StayNearCoffer
+    // turns it off while walking back to the coffer, and it is off everywhere else in the field.
     // Inside the vault both stay on until leaving it; only a forced off (error, end) turns them off there.
 
     private string? BossAiCmd(bool on) => _bossCmd switch
@@ -29,7 +31,7 @@ public sealed partial class Runner
     private void WrathOn()
     {
         Game.Command(_rotation == "RotationSolver" ? "/rotation Auto" : "/wrath auto on");
-        if (BossAiCmd(true) is { } ai && InDuty())
+        if (BossAiCmd(true) is { } ai && AiAllowed() && !_leashing)
         {
             Game.Command(ai);
             _vbmAiOn = true;
@@ -72,10 +74,10 @@ public sealed partial class Runner
 
     private void ResumeAi()
     {
-        if (!_aiSuspended)
+        if (!_aiSuspended || _leashing)
             return;
         _aiSuspended = false;
-        if (BossAiCmd(true) is { } ai && InDuty())
+        if (BossAiCmd(true) is { } ai && AiAllowed())
         {
             Game.Command(ai);
             _vbmAiOn = true;
