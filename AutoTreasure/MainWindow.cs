@@ -86,6 +86,8 @@ public sealed class MainWindow : Window
         ImGui.Spacing();
         if (ImGui.CollapsingHeader("寶物庫打到第幾層", ImGuiTreeNodeFlags.DefaultOpen))
             DrawFloors(runs);
+        if (ImGui.CollapsingHeader("強欲陷阱", ImGuiTreeNodeFlags.DefaultOpen))
+            DrawLures(runs);
         if (ImGui.CollapsingHeader("戰利品", ImGuiTreeNodeFlags.DefaultOpen))
             DrawLoot(runs);
         if (ImGui.CollapsingHeader("每張圖的紀錄"))
@@ -196,6 +198,127 @@ public sealed class MainWindow : Window
         var unknown = vaults.Count(r => r.Floor == null);
         ImGui.TextDisabled("選門型 5 層、選錯門就結束；轉盤型最多 5 關、輪盤沒召喚出魔物就結束"
             + (unknown > 0 ? $"\n另有 {unknown} 次是這個功能加入前的紀錄，沒有層數" : ""));
+    }
+
+    private static readonly (string Result, string Label, string Tip)[] LureResults =
+    [
+        ("success", "成功", "所有強欲陷阱都解除成功"),
+        ("cashout", "中止", "解除到一半收手（按「不挑戰解除陷阱」），拿到當時的倍數"),
+        ("failed", "失敗", "解除失敗，寶物全沒了"),
+        ("declined", "沒挑戰", "一開始就不挑戰，照原本的寶物"),
+    ];
+
+    private static string LureText(Lure l) => l.Result switch
+    {
+        "success" => $"成功（全部解除，{l.Multiplier} 倍）",
+        "cashout" => $"中止（收手，{l.Multiplier} 倍）",
+        "failed" => "失敗（寶物全沒了）",
+        "declined" => "沒挑戰",
+        _ => "不明（沒看到結果）",
+    };
+
+    private static string FloorText(int floor) => floor > 0 ? $"第 {floor} 層" : "?";
+
+    // per grade: how many lures, how they ended and on which floors; then every lure with the vault-only items it paid out
+    private void DrawLures(List<Run> runs)
+    {
+        var lures = runs.Where(r => r.Lures is { Count: > 0 }).SelectMany(r => r.Lures!.Select(l => (Run: r, Lure: l))).ToList();
+        if (lures.Count == 0)
+        {
+            ImGui.TextUnformatted("還沒有強欲陷阱紀錄（只有選門型寶物庫會出現）");
+            return;
+        }
+        var cols = LureResults.Length + 4;
+        if (ImGui.BeginTable("lures", cols, ImGuiTableFlags.Borders | ImGuiTableFlags.RowBg | ImGuiTableFlags.SizingStretchProp))
+        {
+            ImGui.TableSetupColumn("地圖", ImGuiTableColumnFlags.WidthStretch, 1);
+            ImGui.TableSetupColumn("出現", ImGuiTableColumnFlags.WidthStretch, 1);
+            foreach (var r in LureResults)
+                ImGui.TableSetupColumn(r.Label, ImGuiTableColumnFlags.WidthStretch, 1);
+            ImGui.TableSetupColumn("不明", ImGuiTableColumnFlags.WidthStretch, 1);
+            ImGui.TableSetupColumn("出現在", ImGuiTableColumnFlags.WidthStretch, 3);
+            ImGui.TableNextRow(ImGuiTableRowFlags.Headers);
+            for (var i = 0; i < cols; i++)
+            {
+                ImGui.TableSetColumnIndex(i);
+                ImGui.TableHeader(ImGui.TableGetColumnName(i));
+                var tip = i switch
+                {
+                    1 => "強欲陷阱出現幾次",
+                    _ when i >= 2 && i < 2 + LureResults.Length => LureResults[i - 2].Tip,
+                    _ when i == cols - 2 => "沒看到結果訊息（例如中途重新載入插件）",
+                    _ when i == cols - 1 => "出現在寶物庫第幾層，各幾次",
+                    _ => "",
+                };
+                if (tip != "" && ImGui.IsItemHovered())
+                    ImGui.SetTooltip(tip);
+            }
+            foreach (var m in TreasureMaps.All)
+            {
+                var ls = lures.Where(x => x.Run.Grade == m.Grade).Select(x => x.Lure).ToList();
+                if (ls.Count == 0)
+                    continue;
+                ImGui.TableNextRow();
+                ImGui.TableNextColumn();
+                ImGui.TextUnformatted(m.Grade);
+                ImGui.TableNextColumn();
+                ImGui.TextUnformatted(ls.Count.ToString());
+                foreach (var r in LureResults)
+                {
+                    ImGui.TableNextColumn();
+                    var n = ls.Count(l => l.Result == r.Result);
+                    if (n == 0)
+                        ImGui.TextDisabled("-");
+                    else
+                        ImGui.TextUnformatted(n.ToString());
+                }
+                ImGui.TableNextColumn();
+                var unknown = ls.Count(l => LureResults.All(r => r.Result != l.Result));
+                if (unknown == 0)
+                    ImGui.TextDisabled("-");
+                else
+                    ImGui.TextUnformatted(unknown.ToString());
+                ImGui.TableNextColumn();
+                ImGui.TextWrapped(string.Join("、", ls.GroupBy(l => l.Floor).OrderBy(g => g.Key).Select(g => $"{FloorText(g.Key)} {g.Count()} 次")));
+            }
+            ImGui.EndTable();
+        }
+
+        if (!ImGui.BeginTable("lurelist", 5, ImGuiTableFlags.Borders | ImGuiTableFlags.RowBg | ImGuiTableFlags.ScrollY | ImGuiTableFlags.SizingStretchProp, new Vector2(0, 160)))
+            return;
+        ImGui.TableSetupScrollFreeze(0, 1);
+        ImGui.TableSetupColumn("時間", ImGuiTableColumnFlags.WidthStretch, 2);
+        ImGui.TableSetupColumn("地圖", ImGuiTableColumnFlags.WidthStretch, 1);
+        ImGui.TableSetupColumn("層", ImGuiTableColumnFlags.WidthStretch, 1.2f);
+        ImGui.TableSetupColumn("結果", ImGuiTableColumnFlags.WidthStretch, 3);
+        ImGui.TableSetupColumn("拿到的寶物庫特有物品", ImGuiTableColumnFlags.WidthStretch, 5);
+        ImGui.TableHeadersRow();
+        foreach (var (run, l) in Enumerable.Reverse(lures))
+        {
+            ImGui.TableNextRow();
+            ImGui.TableNextColumn();
+            ImGui.TextUnformatted(l.Time.ToString("MM/dd HH:mm"));
+            ImGui.TableNextColumn();
+            ImGui.TextUnformatted(run.Grade);
+            ImGui.TableNextColumn();
+            ImGui.TextUnformatted(FloorText(l.Floor));
+            ImGui.TableNextColumn();
+            var color = l.Result switch
+            {
+                "success" or "cashout" => new Vector4(0.5f, 1, 0.5f, 1),
+                "failed" => new Vector4(1, 0.5f, 0.5f, 1),
+                _ => new Vector4(0.8f, 0.8f, 0.8f, 1),
+            };
+            ImGui.TextColored(color, LureText(l));
+            ImGui.TableNextColumn();
+            var items = l.Items.Where(kv => _config.IsUnique(kv.Key)).Select(kv => $"{ItemName(kv.Key)}×{kv.Value}").ToList();
+            if (items.Count == 0)
+                ImGui.TextDisabled("-");
+            else
+                ImGui.TextWrapped(string.Join("、", items));
+        }
+        ImGui.EndTable();
+        ImGui.TextDisabled("物品只列挖寶特有的（跟戰利品的右鍵標記一樣）；強欲陷阱結束後 20 秒內進背包的算它的");
     }
 
     private void DrawLoot(List<Run> runs)

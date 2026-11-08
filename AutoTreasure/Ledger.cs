@@ -13,6 +13,17 @@ public sealed class Purchase
     public long Gil { get; set; } // price * quantity + tax
 }
 
+// A Gambler's Lure in a door vault. Items are what came in from the lure starting until LureLoot after it ended (the coffer
+// pays out the multiplied treasure then).
+public sealed class Lure
+{
+    public DateTime Time { get; set; }
+    public int Floor { get; set; } // 0 = floor unknown
+    public string? Result { get; set; } // success (all cleared) / cashout / failed / declined; null = no ending seen
+    public int Multiplier { get; set; } = 1;
+    public Dictionary<uint, int> Items { get; set; } = [];
+}
+
 // One deciphered map: the field coffer, and the vault if its portal was taken. Gil and items are what came in while it ran.
 public sealed class Run
 {
@@ -23,6 +34,7 @@ public sealed class Run
     public bool Vault { get; set; }
     public ushort? VaultTerritory { get; set; }
     public int? Floor { get; set; } // how far the vault got: door vaults the floor, roulette vaults the round (1-5)
+    public List<Lure>? Lures { get; set; }
     public long Gil { get; set; }
     public Dictionary<uint, int> Items { get; set; } = [];
 }

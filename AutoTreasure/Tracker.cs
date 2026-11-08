@@ -19,6 +19,9 @@ namespace AutoTreasure;
 //   on the market board.
 //   Vault progress from the system messages: door vaults start on floor 1 and 「打開了通往第二區的大門！」 names the next floor;
 //   roulette vaults count 「發動了…召喚，…出現了！」 (one per round).
+//   Gambler's Lure from its system messages (LogMessage 6965-6972, the texts BossMod.Maps HighLow.cs lists): 「強欲陷阱發動了！」
+//   starts one on the current floor, the ending message sets the result; items that come in until LureLoot after the
+//   ending also count for the lure.
 public sealed unsafe class Tracker : IDisposable
 {
     private static readonly TimeSpan Grace = TimeSpan.FromSeconds(180);
@@ -26,6 +29,8 @@ public sealed unsafe class Tracker : IDisposable
     private static readonly TimeSpan ResumeOnLoad = TimeSpan.FromMinutes(30);
     private static readonly TimeSpan BoughtExpiry = TimeSpan.FromSeconds(60);
     private static readonly TimeSpan Settle = TimeSpan.FromSeconds(10); // after load / login the bags fill in from empty
+    private static readonly TimeSpan LureLoot = TimeSpan.FromSeconds(20);
+    private static readonly TimeSpan LureIdle = TimeSpan.FromSeconds(330); // the challenge window counts down from 300 s
 
     private readonly Ledger _ledger;
     private readonly ConcurrentQueue<Action> _pending = new(); // market board events, applied on the framework thread
@@ -39,6 +44,9 @@ public sealed unsafe class Tracker : IDisposable
     private DateTime _lastActivity;
     private DateTime _countFrom = DateTime.Now + Settle;
     private int _summons;
+    private Lure? _lure;
+    private DateTime _lureAt;
+    private DateTime? _lureEndAt;
 
     public Run? Current { get; private set; }
 
@@ -167,6 +175,10 @@ public sealed unsafe class Tracker : IDisposable
                 EndRun(_lastActivity);
         }
 
+        if (_lure != null && (TreasureMaps.ByVault(Plugin.ClientState.TerritoryType) == null
+            || (_lureEndAt is { } lureEnd ? now - lureEnd > LureLoot : now - _lureAt > LureIdle)))
+            _lure = null;
+
         var currency = InventoryManager.Instance()->GetInventoryContainer(InventoryType.Currency);
         if (currency == null || !currency->IsLoaded)
         {
@@ -196,9 +208,18 @@ public sealed unsafe class Tracker : IDisposable
         if (Current is not { Floor: { } floor } run || run.VaultTerritory != territory)
             return;
         var msg = message.TextValue;
+        if (msg.Contains("強欲陷阱", StringComparison.Ordinal))
+        {
+            OnLure(run, floor, msg);
+            return;
+        }
         int reached;
         if (msg.Contains("打開了", StringComparison.Ordinal) && msg.Contains("大門", StringComparison.Ordinal))
+        {
+            if (_lureEndAt != null)
+                _lure = null; // on to the next floor: the coffer has paid out
             reached = NamedFloor(msg) ?? floor + 1;
+        }
         else if (TreasureMaps.IsRoulette(territory) && msg.Contains("發動了", StringComparison.Ordinal) && msg.Contains("召喚，", StringComparison.Ordinal))
             reached = ++_summons;
         else
@@ -209,6 +230,44 @@ public sealed unsafe class Tracker : IDisposable
             run.Floor = reached;
             _ledger.MarkDirty();
         }
+    }
+
+    private void OnLure(Run run, int floor, string msg)
+    {
+        var now = DateTime.Now;
+        var m = System.Text.RegularExpressions.Regex.Match(msg, @"(\d+)\s*倍");
+        var times = m.Success && int.TryParse(m.Groups[1].Value, out var x) ? x : 1;
+        if (msg.Contains("強欲陷阱發動了", StringComparison.Ordinal))
+        {
+            _lure = new Lure { Time = now, Floor = floor };
+            (run.Lures ??= []).Add(_lure);
+            (_lureAt, _lureEndAt) = (now, null);
+        }
+        else if (_lure == null || _lureEndAt != null)
+        {
+            return;
+        }
+        else if (msg.Contains("解除成功了", StringComparison.Ordinal))
+        {
+            _lure.Multiplier = times; // 「強欲陷阱解除成功了，財寶的數量增加到了開始時的N倍！」, the game goes on
+        }
+        else
+        {
+            string? result = msg switch
+            {
+                _ when msg.Contains("都成功解除了", StringComparison.Ordinal) => "success", // 所有強欲陷阱都成功解除了，獲得了開始時N倍的財寶！
+                _ when msg.Contains("解除中斷了", StringComparison.Ordinal) => "cashout", // 強欲陷阱解除中斷了，獲得了開始時N倍的財寶！
+                _ when msg.Contains("解除失敗", StringComparison.Ordinal) => "failed", // 強欲陷阱解除失敗，失去了所有的財寶……
+                _ when msg.Contains("沒有挑戰", StringComparison.Ordinal) => "declined", // 沒有挑戰強欲陷阱的解除……
+                _ => null,
+            };
+            if (result == null)
+                return; // 「強欲陷阱沒有被完全解除……」 (tie), the game goes on
+            _lure.Result = result;
+            _lure.Multiplier = result switch { "failed" => 0, "declined" => 1, _ => times };
+            _lureEndAt = now;
+        }
+        _ledger.MarkDirty();
     }
 
     // 「通往第二區」 -> 2, 「通往最終區」 -> the last floor
@@ -235,6 +294,7 @@ public sealed unsafe class Tracker : IDisposable
     private void StartRun(string grade, DateTime now)
     {
         EndRun(now);
+        _lure = null;
         Current = new Run { Start = now, Grade = grade, Character = Character() };
         _ledger.Data.Runs.Add(Current);
         _ledger.MarkDirty();
@@ -304,6 +364,8 @@ public sealed unsafe class Tracker : IDisposable
             if (gained <= 0 || Current == null)
                 continue;
             Current.Items[id] = Current.Items.GetValueOrDefault(id) + gained;
+            if (_lure != null)
+                _lure.Items[id] = _lure.Items.GetValueOrDefault(id) + gained;
             _lastActivity = now;
             _ledger.MarkDirty();
         }
