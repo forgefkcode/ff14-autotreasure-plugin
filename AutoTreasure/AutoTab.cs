@@ -16,6 +16,7 @@ public sealed class AutoTab : IDisposable
     private AutoConfig C => _config.Auto;
 
     public void Dispose() => _runner?.Dispose();
+    public bool Running => _runner?.Running == true;
 
     public void Start()
     {

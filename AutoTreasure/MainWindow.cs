@@ -77,6 +77,15 @@ public sealed class MainWindow : Window
         ImGui.TextColored(new Vector4(0.6f, 1, 0.6f, 1), $"記帳：{_tracker.Status()}");
         ImGui.SetNextItemWidth(140);
         ImGui.Combo("期間", ref _range, RangeNames);
+        ImGui.SameLine();
+        var onlyRunning = _config.RecordOnlyWhileRunning;
+        if (ImGui.Checkbox("只在自動挖寶執行中記帳", ref onlyRunning))
+        {
+            _config.RecordOnlyWhileRunning = onlyRunning;
+            _config.Save();
+        }
+        if (ImGui.IsItemHovered())
+            ImGui.SetTooltip("勾選：按「開始」到停止之間才記（停止時進行中的那張圖就結束）；取消：自己手動挖寶、買圖也記");
 
         var from = From;
         var purchases = _ledger.Data.Purchases.Where(p => p.Time >= from).ToList();

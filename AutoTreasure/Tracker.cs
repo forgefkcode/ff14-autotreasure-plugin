@@ -10,7 +10,8 @@ using FFXIVClientStructs.FFXIV.Client.Game;
 
 namespace AutoTreasure;
 
-// Turns game events into ledger records.
+// Turns game events into ledger records, only while Recording says so (by default while the automation runs): outside it
+// the open run is closed and no run or map purchase is recorded.
 //   Map purchases: market board purchase request (price, tax) + purchase confirmation, for the four map items.
 //   Runs: a run starts when a deciphered map shows up in the key items, and stays open while that key item is held, while in
 //   the grade's vault, and in combat; it closes Grace after the last of those (or loot) ends, or when the next map is deciphered.
@@ -33,6 +34,7 @@ public sealed unsafe class Tracker : IDisposable
     private static readonly TimeSpan LureIdle = TimeSpan.FromSeconds(330); // the challenge window counts down from 300 s
 
     private readonly Ledger _ledger;
+    private readonly Func<bool> _recording;
     private readonly ConcurrentQueue<Action> _pending = new(); // market board events, applied on the framework thread
     private readonly Dictionary<uint, (int Quantity, long Gil)> _requests = []; // catalog id -> last purchase request
     private readonly Dictionary<uint, (int Quantity, DateTime Time)> _bought = []; // bought but not seen in the inventory yet
@@ -50,9 +52,10 @@ public sealed unsafe class Tracker : IDisposable
 
     public Run? Current { get; private set; }
 
-    public Tracker(Ledger ledger)
+    public Tracker(Ledger ledger, Func<bool> recording)
     {
         _ledger = ledger;
+        _recording = recording;
         // a run left open by the last session: keep going if it is recent, otherwise close it where it started
         if (_ledger.Data.Runs.LastOrDefault() is { End: null } last)
         {
@@ -91,6 +94,8 @@ public sealed unsafe class Tracker : IDisposable
 
     public string Status()
     {
+        if (!_recording())
+            return "自動挖寶沒在執行，不記帳";
         if (Current == null)
             return "沒有在挖寶";
         if (TreasureMaps.ByVault(Plugin.ClientState.TerritoryType) != null)
@@ -119,7 +124,16 @@ public sealed unsafe class Tracker : IDisposable
             return;
 
         var now = DateTime.Now;
-        if (now >= _nextKeyCheck)
+        var recording = _recording();
+        if (!recording)
+        {
+            // not recording: close the run; once recording starts, a map that is already deciphered starts one
+            if (Current != null)
+                EndRun(now);
+            _keyChecked = false;
+            _lure = null;
+        }
+        else if (now >= _nextKeyCheck)
         {
             _nextKeyCheck = now.AddSeconds(1);
             var held = HeldMap()?.Grade;
@@ -140,7 +154,7 @@ public sealed unsafe class Tracker : IDisposable
             _heldGrade = held;
         }
 
-        if (TreasureMaps.ByVault(Plugin.ClientState.TerritoryType) is { } vault)
+        if (recording && TreasureMaps.ByVault(Plugin.ClientState.TerritoryType) is { } vault)
         {
             if (Current == null || Current.Grade != vault.Grade)
             {
@@ -385,7 +399,7 @@ public sealed unsafe class Tracker : IDisposable
         _pending.Enqueue(() =>
         {
             _bought[id] = (_bought.GetValueOrDefault(id).Quantity + quantity, DateTime.Now);
-            if (TreasureMaps.ByMapItem(id) is not { } map)
+            if (TreasureMaps.ByMapItem(id) is not { } map || !_recording())
                 return;
             long gil = 0;
             if (_requests.Remove(id, out var request))

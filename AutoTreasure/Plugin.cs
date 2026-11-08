@@ -12,6 +12,7 @@ public sealed class Configuration : IPluginConfiguration
 {
     public int Version { get; set; } = 1;
     public bool UniqueOnly { get; set; } = true;
+    public bool RecordOnlyWhileRunning { get; set; } = true;
     public HashSet<uint> MarkedUnique { get; set; } = []; // items the player marked as treasure-only
     public HashSet<uint> MarkedCommon { get; set; } = []; // items from TreasureOnlyItems the player wants hidden
     public Automation.AutoConfig Auto { get; set; } = new();
@@ -51,8 +52,8 @@ public sealed class Plugin : IDalamudPlugin
     {
         var config = PluginInterface.GetPluginConfig() as Configuration ?? new Configuration();
         _ledger = new Ledger(Path.Combine(PluginInterface.GetPluginConfigDirectory(), "ledger.json"));
-        _tracker = new Tracker(_ledger);
         _auto = new AutoTab(config);
+        _tracker = new Tracker(_ledger, () => !config.RecordOnlyWhileRunning || _auto.Running);
         _main = new MainWindow(config, _ledger, _tracker, _auto);
         _windows.AddWindow(_main);
 
