@@ -1297,7 +1297,8 @@ public sealed partial class Runner
             return;
         if (n == Step.ERROR)
             (_errorFrom, _errorAfter) = (Current, Elapsed);
-        if (n == Step.TRAVEL)
+        // a field fight that ended while walking back to the coffer must not keep the dodge AI off in the vault
+        if (n is Step.TRAVEL or Step.DUNGEON_INIT)
             (_cofferPos, _leashing) = (null, false);
         if (n == Step.OPEN_COFFER)
             _fieldCleared = false;
