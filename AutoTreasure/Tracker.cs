@@ -20,6 +20,8 @@ namespace AutoTreasure;
 //   on the market board.
 //   Vault progress from the system messages: door vaults start on floor 1 and 「打開了通往第二區的大門！」 names the next floor;
 //   roulette vaults count 「發動了…召喚，…出現了！」 (one per round).
+//   Sessions: each start of the automation opens one and the stop closes it; a start within SessionJoin of the last stop
+//   continues it (a quick stop and start is the same go).
 //   Gambler's Lure from its system messages (LogMessage 6965-6972, the texts BossMod.Maps HighLow.cs lists): 「強欲陷阱發動了！」
 //   starts one on the current floor, the ending message sets the result; items that come in until LureLoot after the
 //   ending also count for the lure.
@@ -32,9 +34,12 @@ public sealed unsafe class Tracker : IDisposable
     private static readonly TimeSpan Settle = TimeSpan.FromSeconds(10); // after load / login the bags fill in from empty
     private static readonly TimeSpan LureLoot = TimeSpan.FromSeconds(20);
     private static readonly TimeSpan LureIdle = TimeSpan.FromSeconds(330); // the challenge window counts down from 300 s
+    private static readonly TimeSpan SessionJoin = TimeSpan.FromMinutes(5);
 
     private readonly Ledger _ledger;
     private readonly Func<bool> _recording;
+    private readonly Func<bool> _running;
+    private bool _wasRunning;
     private readonly ConcurrentQueue<Action> _pending = new(); // market board events, applied on the framework thread
     private readonly Dictionary<uint, (int Quantity, long Gil)> _requests = []; // catalog id -> last purchase request
     private readonly Dictionary<uint, (int Quantity, DateTime Time)> _bought = []; // bought but not seen in the inventory yet
@@ -52,10 +57,20 @@ public sealed unsafe class Tracker : IDisposable
 
     public Run? Current { get; private set; }
 
-    public Tracker(Ledger ledger, Func<bool> recording)
+    public Tracker(Ledger ledger, Func<bool> recording, Func<bool> running)
     {
         _ledger = ledger;
         _recording = recording;
+        _running = running;
+        // a session left open by the last load of the plugin (reload, crash): it ended with its last record
+        if (_ledger.Data.Sessions.LastOrDefault() is { End: null } open)
+        {
+            open.End = new[] { open.Start }
+                .Concat(_ledger.Data.Runs.Where(r => r.Start >= open.Start).Select(r => r.End ?? r.Start))
+                .Concat(_ledger.Data.Purchases.Where(p => p.Time >= open.Start).Select(p => p.Time))
+                .Max();
+            _ledger.MarkDirty();
+        }
         // a run left open by the last session: keep going if it is recent, otherwise close it where it started
         if (_ledger.Data.Runs.LastOrDefault() is { End: null } last)
         {
@@ -120,10 +135,11 @@ public sealed unsafe class Tracker : IDisposable
     {
         while (_pending.TryDequeue(out var action))
             action();
+        var now = DateTime.Now;
+        UpdateSession(now);
         if (!Plugin.ClientState.IsLoggedIn)
             return;
 
-        var now = DateTime.Now;
         var recording = _recording();
         if (!recording)
         {
@@ -211,6 +227,29 @@ public sealed unsafe class Tracker : IDisposable
         _gilKnown = true;
 
         _ledger.SaveIfDirty();
+    }
+
+    private void UpdateSession(DateTime now)
+    {
+        var running = _running();
+        if (running == _wasRunning)
+            return;
+        _wasRunning = running;
+        var sessions = _ledger.Data.Sessions;
+        if (!running)
+        {
+            if (sessions.LastOrDefault() is { End: null } open)
+                open.End = now;
+        }
+        else if (sessions.LastOrDefault() is { End: { } end } last && now - end < SessionJoin && last.Character == Character())
+        {
+            last.End = null;
+        }
+        else
+        {
+            sessions.Add(new Session { Start = now, Character = Character() });
+        }
+        _ledger.MarkDirty();
     }
 
     private void OnChatMessage(XivChatType type, int timestamp, ref SeString sender, ref SeString message, ref bool isHandled)

@@ -53,7 +53,7 @@ public sealed class Plugin : IDalamudPlugin
         var config = PluginInterface.GetPluginConfig() as Configuration ?? new Configuration();
         _ledger = new Ledger(Path.Combine(PluginInterface.GetPluginConfigDirectory(), "ledger.json"));
         _auto = new AutoTab(config);
-        _tracker = new Tracker(_ledger, () => !config.RecordOnlyWhileRunning || _auto.Running);
+        _tracker = new Tracker(_ledger, () => !config.RecordOnlyWhileRunning || _auto.Running, () => _auto.Running);
         _main = new MainWindow(config, _ledger, _tracker, _auto);
         _windows.AddWindow(_main);
 

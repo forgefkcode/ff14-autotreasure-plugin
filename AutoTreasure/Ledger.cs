@@ -39,11 +39,23 @@ public sealed class Run
     public Dictionary<uint, int> Items { get; set; } = [];
 }
 
+// One go of the automation, from 「開始」 to 「停止」; starting again within Tracker.SessionJoin of the stop continues it. The
+// ledger tab shows a session's purchases and runs by time.
+public sealed class Session
+{
+    public DateTime Start { get; set; }
+    public DateTime? End { get; set; }
+    public string Character { get; set; } = "";
+
+    public bool Contains(DateTime t) => t >= Start && (End == null || t <= End);
+}
+
 public sealed class LedgerData
 {
     public int Version { get; set; } = 1;
     public List<Purchase> Purchases { get; set; } = [];
     public List<Run> Runs { get; set; } = [];
+    public List<Session> Sessions { get; set; } = [];
 }
 
 // The records live in their own file in the plugin config folder, apart from the settings, and are saved a few seconds

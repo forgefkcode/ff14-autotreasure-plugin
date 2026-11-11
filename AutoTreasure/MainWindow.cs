@@ -7,15 +7,16 @@ namespace AutoTreasure;
 
 public sealed class MainWindow : Window
 {
-    private static readonly string[] RangeNames = ["這次啟動", "今天", "最近 7 天", "全部"];
+    // then one entry per earlier session, newest first
+    private static readonly string[] RangeNames = ["這次挖寶", "今天", "最近 7 天", "全部"];
+    private const int MaxSessionsListed = 30;
     private static readonly string[] GradeNames = ["全部地圖", .. TreasureMaps.All.Select(m => m.Grade)];
 
     private readonly Configuration _config;
     private readonly Ledger _ledger;
     private readonly Tracker _tracker;
-    private readonly DateTime _loaded = DateTime.Now;
     private readonly Dictionary<uint, string> _names = [];
-    private int _range = 1;
+    private int _range;
     private int _lootGrade;
     private readonly AutoTab _auto;
 
@@ -30,13 +31,34 @@ public sealed class MainWindow : Window
         SizeCondition = ImGuiCond.FirstUseEver;
     }
 
-    private DateTime From => _range switch
+    // sessions that recorded something, newest first; [0] is 「這次挖寶」 (the running one, or the last one)
+    private List<Session> ListedSessions() => Enumerable.Reverse(_ledger.Data.Sessions)
+        .Where(s => s.End == null || _ledger.Data.Runs.Any(r => s.Contains(r.Start)) || _ledger.Data.Purchases.Any(p => s.Contains(p.Time)))
+        .Take(MaxSessionsListed + 1).ToList();
+
+    private string SessionLabel(Session s)
     {
-        0 => _loaded,
-        1 => DateTime.Today,
-        2 => DateTime.Today.AddDays(-6),
-        _ => DateTime.MinValue,
-    };
+        var maps = _ledger.Data.Runs.Count(r => s.Contains(r.Start));
+        var end = s.End is { } e ? e.ToString(e.Date == s.Start.Date ? "HH:mm" : "MM/dd HH:mm") : "進行中";
+        return $"{s.Start:MM/dd HH:mm}–{end}（{maps} 張）";
+    }
+
+    // the selected range: a session, or from a time on
+    private Func<DateTime, bool> InRange(List<Session> sessions)
+    {
+        if (_range == 0 || _range >= RangeNames.Length)
+        {
+            var i = _range == 0 ? 0 : _range - RangeNames.Length + 1;
+            return i < sessions.Count ? sessions[i].Contains : _ => false;
+        }
+        var from = _range switch
+        {
+            1 => DateTime.Today,
+            2 => DateTime.Today.AddDays(-6),
+            _ => DateTime.MinValue,
+        };
+        return t => t >= from;
+    }
 
     private string ItemName(uint id)
     {
@@ -75,8 +97,14 @@ public sealed class MainWindow : Window
     private void DrawLedger()
     {
         ImGui.TextColored(new Vector4(0.6f, 1, 0.6f, 1), $"記帳：{_tracker.Status()}");
-        ImGui.SetNextItemWidth(140);
-        ImGui.Combo("期間", ref _range, RangeNames);
+        var sessions = ListedSessions();
+        string[] names = [.. RangeNames, .. sessions.Skip(1).Select(SessionLabel)];
+        _range = Math.Min(_range, names.Length - 1);
+        ImGui.SetNextItemWidth(200);
+        ImGui.Combo("期間", ref _range, names);
+        if (ImGui.IsItemHovered())
+            ImGui.SetTooltip("這次挖寶＝最近一次按「開始」到「停止」（停止後 5 分鐘內再按開始算同一次）"
+                + (sessions.Count > 0 ? $"：{SessionLabel(sessions[0])}" : "，還沒有") + "\n下面列的是之前每一次挖寶");
         ImGui.SameLine();
         var onlyRunning = _config.RecordOnlyWhileRunning;
         if (ImGui.Checkbox("只在自動挖寶執行中記帳", ref onlyRunning))
@@ -87,9 +115,9 @@ public sealed class MainWindow : Window
         if (ImGui.IsItemHovered())
             ImGui.SetTooltip("勾選：按「開始」到停止之間才記（停止時進行中的那張圖就結束）；取消：自己手動挖寶、買圖也記");
 
-        var from = From;
-        var purchases = _ledger.Data.Purchases.Where(p => p.Time >= from).ToList();
-        var runs = _ledger.Data.Runs.Where(r => r.Start >= from).ToList();
+        var inRange = InRange(sessions);
+        var purchases = _ledger.Data.Purchases.Where(p => inRange(p.Time)).ToList();
+        var runs = _ledger.Data.Runs.Where(r => inRange(r.Start)).ToList();
 
         DrawSummary(purchases, runs);
         ImGui.Spacing();
@@ -106,7 +134,7 @@ public sealed class MainWindow : Window
         if (ImGui.Button("清除全部紀錄") && ImGui.GetIO().KeyCtrl)
             _ledger.Clear();
         if (ImGui.IsItemHovered())
-            ImGui.SetTooltip("按住 Ctrl 再點：刪掉所有買圖、收入、戰利品紀錄（設定不會刪）");
+            ImGui.SetTooltip("按住 Ctrl 再點：刪掉所有買圖、收入、戰利品紀錄（設定不會刪）；只想看這次的話，期間選「這次挖寶」就好，不用清除");
     }
 
     private static void DrawSummary(List<Purchase> purchases, List<Run> runs)
