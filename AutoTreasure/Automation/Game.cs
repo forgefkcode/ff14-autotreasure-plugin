@@ -26,6 +26,9 @@ public static unsafe class Game
     public static uint JobId => Player?.ClassJob.RowId ?? 0;
     public static ushort Territory => Plugin.ClientState.TerritoryType;
     public static uint CurrentWorldId => Player?.CurrentWorld.RowId ?? 0;
+    public static uint HomeWorldId => Player?.HomeWorld.RowId ?? 0;
+    public static string PlayerName => Player?.Name.TextValue ?? "";
+    public static bool LoggedIn => Plugin.ClientState.IsLoggedIn;
 
     public static bool Condition(int id) => Plugin.Condition[(ConditionFlag)id];
 
@@ -193,6 +196,23 @@ public static unsafe class Game
         a->FireCallback((uint)values.Length, atk, update);
     }
 
+    // click a button of an addon by its component node id, like a mouse click (ECommons' ClickButtonIfEnabled); false when the
+    // addon or the button is not there or the button is disabled
+    public static bool ClickButton(string name, uint buttonId)
+    {
+        var a = Addon(name);
+        if (a == null || !AddonReady(name))
+            return false;
+        var btn = a->GetComponentButtonById(buttonId);
+        if (btn == null || !btn->IsEnabled || btn->AtkComponentBase.OwnerNode == null)
+            return false;
+        var evt = btn->AtkComponentBase.OwnerNode->AtkResNode.AtkEventManager.Event;
+        if (evt == null)
+            return false;
+        a->ReceiveEvent(evt->State.EventType, (int)evt->Param, evt, null);
+        return true;
+    }
+
     public static void CloseAddon(string name)
     {
         if (AddonReady(name))
@@ -331,6 +351,16 @@ public static unsafe class Game
         Ipc("Lifestream.ExecuteCommand", () => { Plugin.PluginInterface.GetIpcSubscriber<string, object>("Lifestream.ExecuteCommand").InvokeAction(destination); return true; });
 
     public static bool LifestreamBusy => Ipc("Lifestream.IsBusy", () => Plugin.PluginInterface.GetIpcSubscriber<bool>("Lifestream.IsBusy").InvokeFunc());
+
+    public static void LifestreamAbort() =>
+        Ipc("Lifestream.Abort", () => { Plugin.PluginInterface.GetIpcSubscriber<object>("Lifestream.Abort").InvokeAction(); return true; });
+
+    // at the title screen with the title menu fully shown (no data center or connecting window): a login can start
+    public static bool CanAutoLogin => Ipc("Lifestream.CanAutoLogin", () => Plugin.PluginInterface.GetIpcSubscriber<bool>("Lifestream.CanAutoLogin").InvokeFunc());
+
+    // title screen -> Start -> character select -> log in as name@homeWorld (Lifestream's login tasks); false when it cannot start
+    public static bool ConnectAndLogin(string name, string homeWorld) =>
+        Ipc("Lifestream.ConnectAndLogin", () => Plugin.PluginInterface.GetIpcSubscriber<string, string, bool>("Lifestream.ConnectAndLogin").InvokeFunc(name, homeWorld));
 }
 
 public static class Universalis

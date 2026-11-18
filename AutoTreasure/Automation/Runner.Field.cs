@@ -118,6 +118,7 @@ public sealed partial class Runner
             _c.MarketBoardName = Game.MarketBoardName() ?? "Market Board";
         if (!Game.PluginLoaded(FlagPlugin))
             Log("提醒：沒偵測到 XivTreasureParty，解讀後需手動插旗");
+        RememberCharacter();
         WrathOff();
         return Step.CHECK_MAP;
     }

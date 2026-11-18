@@ -9,7 +9,7 @@ public enum Step
     INIT, CHECK_MAP, DECIPHER, LOCATE, TRAVEL, DIG, OPEN_COFFER, FIELD_COMBAT, LOOT, PORTAL_CHECK, ENTER_DUNGEON, DEAD, FIELD_FIGHT,
     PICK_WORLD, WORLD_TRAVEL, MB_TRAVEL, MB_OPEN, MB_SEARCH, MB_LIST, MB_BUY, MB_CLOSE, MB_FAIL,
     DUNGEON_INIT, DUNGEON_ENTRY, DUNGEON_CHEST, DUNGEON_COMBAT, DUNGEON_LOOT, DUNGEON_GAMBLE, DUNGEON_DOOR, DUNGEON_DOOR_WAIT,
-    DUNGEON_PASSAGE, DUNGEON_PULL, DUNGEON_SPHERE, DUNGEON_ROULETTE, DUNGEON_R_COMBAT, DUNGEON_R_CHEST, DUNGEON_EXIT, ERROR, END,
+    DUNGEON_PASSAGE, DUNGEON_PULL, DUNGEON_SPHERE, DUNGEON_ROULETTE, DUNGEON_R_COMBAT, DUNGEON_R_CHEST, DUNGEON_EXIT, RELOGIN, ERROR, END,
 }
 
 // The auto-treasure state machine, ported from the SND scripts G12 / G14 / G15 / G17_AutoTreasure.lua (same steps, timings
@@ -37,7 +37,7 @@ public sealed partial class Runner : IDisposable
         [Step.MB_BUY] = 15, [Step.MB_CLOSE] = 10, [Step.DUNGEON_INIT] = 30, [Step.DUNGEON_COMBAT] = 3600, [Step.DUNGEON_CHEST] = 120,
         [Step.DUNGEON_LOOT] = 180, [Step.DUNGEON_DOOR] = 90, [Step.DUNGEON_DOOR_WAIT] = 60, [Step.DUNGEON_PASSAGE] = 60,
         [Step.DUNGEON_PULL] = 180, [Step.DUNGEON_EXIT] = 180, [Step.DUNGEON_ENTRY] = 150, [Step.DUNGEON_SPHERE] = 15,
-        [Step.DUNGEON_ROULETTE] = 150, [Step.DUNGEON_R_COMBAT] = 3600, [Step.DUNGEON_R_CHEST] = 120,
+        [Step.DUNGEON_ROULETTE] = 150, [Step.DUNGEON_R_COMBAT] = 3600, [Step.DUNGEON_R_CHEST] = 120, [Step.RELOGIN] = 3600,
     };
 
     // steps that should not have a fight; when attacked in the field, FIELD_FIGHT clears it first and comes back
@@ -46,7 +46,7 @@ public sealed partial class Runner : IDisposable
 
     // steps that handle the loading screen themselves
     private static readonly HashSet<Step> WaitsOnLoading =
-        [Step.DUNGEON_INIT, Step.TRAVEL, Step.ENTER_DUNGEON, Step.DUNGEON_EXIT, Step.MB_TRAVEL, Step.WORLD_TRAVEL, Step.DUNGEON_PASSAGE];
+        [Step.DUNGEON_INIT, Step.TRAVEL, Step.ENTER_DUNGEON, Step.DUNGEON_EXIT, Step.MB_TRAVEL, Step.WORLD_TRAVEL, Step.DUNGEON_PASSAGE, Step.RELOGIN];
 
     private static class Cond
     {
@@ -84,6 +84,7 @@ public sealed partial class Runner : IDisposable
     {
         Running = true;
         Plugin.ChatGui.ChatMessage += OnChatMessage;
+        Plugin.ClientState.Logout += OnLogout;
         _ = Plugin.Framework.Run(Loop, _cts.Token);
     }
 
@@ -98,6 +99,7 @@ public sealed partial class Runner : IDisposable
         _disposed = true;
         _cts.Cancel();
         Plugin.ChatGui.ChatMessage -= OnChatMessage;
+        Plugin.ClientState.Logout -= OnLogout;
         if (Running)
         {
             try { Plugin.Framework.RunOnFrameworkThread(StopAutomation).Wait(2000); }
@@ -137,6 +139,19 @@ public sealed partial class Runner : IDisposable
                 {
                     End();
                     break;
+                }
+
+                // disconnected: the game is back at the title screen. RELOGIN logs in again and goes on, or the run ends
+                if (!Game.LoggedIn && Current != Step.RELOGIN)
+                {
+                    if (!_c.AutoRelogin || _charName == "")
+                    {
+                        LogError("斷線回到標題畫面" + (_c.AutoRelogin ? "（不知道要登入哪隻角色）" : "（AutoRelogin 關閉）") + "，停止");
+                        Transition(Step.END);
+                        continue;
+                    }
+                    StartRelogin();
+                    Transition(Step.RELOGIN);
                 }
 
                 if (Game.Condition(Cond.BetweenAreas) && !WaitsOnLoading.Contains(Current))
@@ -187,6 +202,7 @@ public sealed partial class Runner : IDisposable
         {
             Running = false;
             Plugin.ChatGui.ChatMessage -= OnChatMessage;
+            Plugin.ClientState.Logout -= OnLogout;
         }
     }
 
@@ -229,6 +245,7 @@ public sealed partial class Runner : IDisposable
         Step.DUNGEON_PASSAGE => Sync(DungeonPassage),
         Step.DUNGEON_PULL => Sync(DungeonPull),
         Step.DUNGEON_EXIT => DungeonExit(),
+        Step.RELOGIN => Sync(Relogin),
         Step.ERROR => ErrorStep(),
         _ => Task.FromResult<Step?>(null),
     };

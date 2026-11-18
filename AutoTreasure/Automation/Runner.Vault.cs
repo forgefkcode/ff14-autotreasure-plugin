@@ -1283,10 +1283,12 @@ public sealed partial class Runner
     private void End()
     {
         StopAutomation();
+        if (!Game.LoggedIn && Game.LifestreamBusy)
+            Game.LifestreamAbort(); // stopped (or failed) while logging in again
         if (_flagReload != null)
             Game.Command("/xlenableplugin " + FlagPlugin);
         var stages = _stageLog.Count > 0 ? string.Join(",", _stageLog) : "無";
-        Log($"結束：完成 {MapsDone} 張，寶物庫 {DungeonRuns} 次（到達關數 {stages}），錯誤 {ErrorCount} 次，買圖 {MapsBought} 張共 {GilSpent} gil，換伺服器 {WorldTrips} 次，完成 {RoundsDone} 輪");
+        Log($"結束：完成 {MapsDone} 張，寶物庫 {DungeonRuns} 次（到達關數 {stages}），錯誤 {ErrorCount} 次，買圖 {MapsBought} 張共 {GilSpent} gil，換伺服器 {WorldTrips} 次，完成 {RoundsDone} 輪" + (Relogins > 0 ? $"，斷線重登 {Relogins} 次" : ""));
     }
 
     // ---------------------------------------------------------------- transition

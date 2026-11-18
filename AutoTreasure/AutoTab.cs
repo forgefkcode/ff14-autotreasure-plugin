@@ -75,7 +75,7 @@ public sealed class AutoTab : IDisposable
             }
             ImGui.TextColored(running ? new Vector4(0.5f, 1, 0.5f, 1) : new Vector4(0.7f, 0.7f, 0.7f, 1),
                 running ? $"{r.Grade} 執行中：{r.Current}" : $"已停止（{r.Grade}，最後：{r.Current}）");
-            ImGui.TextUnformatted($"完成 {r.MapsDone} 張　寶物庫 {r.DungeonRuns} 次　買圖 {r.MapsBought} 張共 {r.GilSpent:N0} gil　錯誤 {r.ErrorCount} 次　完成 {r.RoundsDone} 輪");
+            ImGui.TextUnformatted($"完成 {r.MapsDone} 張　寶物庫 {r.DungeonRuns} 次　買圖 {r.MapsBought} 張共 {r.GilSpent:N0} gil　錯誤 {r.ErrorCount} 次　完成 {r.RoundsDone} 輪" + (r.Relogins > 0 ? $"　斷線重登 {r.Relogins} 次" : ""));
         }
         if (C.AutoBuy && C.MaxMapPrice <= 0)
             ImGui.TextColored(new Vector4(1, 0.6f, 0.4f, 1), "自動買圖要先在「設定」填每張圖最多付多少 gil（MaxMapPrice）");
@@ -206,6 +206,8 @@ public sealed class AutoTab : IDisposable
             C.EnterDungeon = Bool("EnterDungeon 進寶物庫", C.EnterDungeon, "出現傳送門時是否進入寶物庫");
             C.MaxErrors = Int("MaxErrors 連續錯誤上限", C.MaxErrors, "連續錯誤幾次後停止", 0, 100);
             C.EchoLogs = Choice("EchoLogs 聊天框訊息", C.EchoLogs, ["All", "Errors", "None"], "聊天框要顯示哪些訊息（視窗的紀錄一律全部顯示）");
+            C.AutoRelogin = Bool("AutoRelogin 斷線自動重登", C.AutoRelogin, "斷線被踢回標題畫面時，自動關掉錯誤訊息、用 Lifestream 登入同一隻角色，登入後接著挖寶（在寶物庫裡斷線的話先離開寶物庫）");
+            C.ReloginTries = Int("ReloginTries 重登次數", C.ReloginTries, "每次斷線最多嘗試登入幾次（伺服器忙碌、登入失敗會再試），都失敗就停止", 1, 50);
         }
 
         if (ImGui.CollapsingHeader("買圖"))

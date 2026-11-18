@@ -46,6 +46,8 @@ public sealed class AutoConfig
     public string PortalName { get; set; } = "傳送魔紋";
     public string ExitPortalName { get; set; } = "退出點";
     public string EchoLogs { get; set; } = "All";
+    public bool AutoRelogin { get; set; } = true;
+    public int ReloginTries { get; set; } = 5;
 
     // empty names would never match anything (e.g. digging again and again next to the coffer): use the defaults
     public void FillEmptyNames()
