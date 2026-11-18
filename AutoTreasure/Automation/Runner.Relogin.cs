@@ -10,6 +10,16 @@ public sealed partial class Runner
     private const double ReloginGap = 20;        // between two login attempts
     private const double ReloginAttemptMax = 300; // one login attempt (Lifestream busy) longer than this: abort and retry
     private const double ReloginSettle = 5;      // in the world again: wait this long before going on
+    private const double RsrLoadWait = 3, RsrLoadMax = 60;
+
+    // RotationSolver keeps the hostile targets of the last frame in a static list (DataCenter.AllHostileTargets) and, while
+    // the character is loading in, reads TargetObjectId from them whether it is on or off. After a disconnect in a fight that
+    // list still holds the old monsters, whose memory is gone by then: the game crashes (AccessViolationException in
+    // RSCommands.UpdateRotationState). So it is unloaded at the title screen (the list goes with it) and loaded again once
+    // the character is in the world.
+    private const string RsrName = "RotationSolver";
+    private bool _rsrUnloaded;
+    private double? _rsrReloadAt;
 
     private string _charName = "", _homeWorld = "";
     private Step _reloginFrom;
@@ -36,6 +46,12 @@ public sealed partial class Runner
         _reloginFrom = Current;
         StopAutomation();
         LogError($"斷線回到標題畫面（{(_logoutCode != 0 ? $"錯誤碼 {_logoutCode}，" : "")}在 {Current}），準備重新登入");
+        if (Game.PluginLoaded(RsrName))
+        {
+            Game.Command("/xldisableplugin " + RsrName);
+            (_rsrUnloaded, _rsrReloadAt) = (true, null);
+            Log("先停用 RotationSolver（它留著斷線前的敵人資料，登入時會讓遊戲當掉），進遊戲後再啟用");
+        }
         _reloginTries = 0;
         (_reloginSentAt, _dialogueAt, _loggedInAt) = (null, null, null);
         _reloginNextAt = Now + ReloginFirstWait;
@@ -82,6 +98,8 @@ public sealed partial class Runner
             return ReloginFailed("沒有啟用 Lifestream，無法自動登入");
         if (!Game.CanAutoLogin)
             return null; // the title menu is not up yet (still fading in, or the connecting window)
+        if (_rsrUnloaded && Game.PluginState(RsrName) == true)
+            return null; // RotationSolver not unloaded yet: never log in with it loaded
         if (_reloginTries >= _c.ReloginTries)
             return ReloginFailed($"已經嘗試登入 {_reloginTries} 次都沒成功");
 
@@ -108,6 +126,21 @@ public sealed partial class Runner
         _loggedInAt ??= Now;
         if (Now - _loggedInAt < ReloginSettle)
             return null;
+        if (_rsrUnloaded)
+        {
+            if (_rsrReloadAt == null)
+            {
+                Game.Command("/xlenableplugin " + RsrName);
+                _rsrReloadAt = Now;
+                Log("重新啟用 RotationSolver");
+                return null;
+            }
+            if (!Game.PluginLoaded(RsrName))
+                return Now - _rsrReloadAt > RsrLoadMax ? ReloginFailed("RotationSolver 重新啟用後一直沒載入") : null;
+            if (Now - _rsrReloadAt < RsrLoadWait)
+                return null; // let it start up before its commands are sent
+            (_rsrUnloaded, _rsrReloadAt) = (false, null);
+        }
 
         Relogins++;
         Log($"重新登入完成（嘗試 {_reloginTries} 次），繼續挖寶");
@@ -122,6 +155,15 @@ public sealed partial class Runner
             return Step.DUNGEON_EXIT;
         }
         return Step.CHECK_MAP;
+    }
+
+    // the run ends (stopped, failed) while RotationSolver is unloaded: load it again (a fresh load has no old targets)
+    private void RestoreRsr()
+    {
+        if (!_rsrUnloaded)
+            return;
+        Game.Command("/xlenableplugin " + RsrName);
+        (_rsrUnloaded, _rsrReloadAt) = (false, null);
     }
 
     private Step? ReloginFailed(string why)

@@ -1285,6 +1285,7 @@ public sealed partial class Runner
         StopAutomation();
         if (!Game.LoggedIn && Game.LifestreamBusy)
             Game.LifestreamAbort(); // stopped (or failed) while logging in again
+        RestoreRsr();
         if (_flagReload != null)
             Game.Command("/xlenableplugin " + FlagPlugin);
         var stages = _stageLog.Count > 0 ? string.Join(",", _stageLog) : "無";
