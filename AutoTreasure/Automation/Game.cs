@@ -132,6 +132,49 @@ public static unsafe class Game
     public static bool UseActionOn(uint actionId, IGameObject target) =>
         ActionManager.Instance()->UseAction(ActionType.Action, actionId, target.GameObjectId);
 
+    // ---------------------------------------------------------------- diagnosis (why actions do not go off)
+
+    // the statuses on the player: id, name, seconds left, and whether the game locks actions while it is on
+    public static List<(uint Id, string Name, float Left, bool LocksActions)> PlayerStatuses()
+    {
+        var list = new List<(uint, string, float, bool)>();
+        if (Player is not { } p)
+            return list;
+        foreach (var s in p.StatusList)
+        {
+            if (s.StatusId == 0)
+                continue;
+            var row = s.GameData.ValueNullable;
+            list.Add((s.StatusId, row?.Name.ExtractText() ?? "?", s.RemainingTime, row?.LockActions ?? false));
+        }
+        return list;
+    }
+
+    public static string SetConditions() =>
+        string.Join(",", Enum.GetValues<ConditionFlag>().Distinct().Where(f => f != ConditionFlag.None && Plugin.Condition[f]));
+
+    // the GCD is rolling (an action went off within the last ~2.5 s)
+    public static bool GcdActive => ActionManager.Instance()->GetRecastGroupDetail(57)->IsActive;
+
+    public static float AnimationLock => ActionManager.Instance()->AnimationLock;
+
+    // the action the game holds in its queue (pressed before the last one finished), 0 = none. RSR does nothing while the
+    // queue holds an action other than the one it wants next.
+    public static uint QueuedAction => ActionManager.Instance()->ActionQueued ? ActionManager.Instance()->QueuedActionId : 0;
+
+    // RSR does not act while the cast left is over its "action ahead" time, so a cast timer that never runs out stops it too
+    public static (float Total, float Current) CastTimes => Player is { } p ? (p.TotalCastTime, p.CurrentCastTime) : (0, 0);
+
+    // the game's verdict on using the action now: 0 = usable, else the LogMessage row with the reason
+    public static (uint Code, string Text) ActionStatus(uint actionId, ulong targetId)
+    {
+        var am = ActionManager.Instance();
+        var id = am->GetAdjustedActionId(actionId);
+        var code = am->GetActionStatus(ActionType.Action, id, targetId);
+        var text = code == 0 ? "" : Plugin.DataManager.GetExcelSheet<LogMessage>().GetRowOrDefault(code)?.Text.ExtractText() ?? "";
+        return (code, text);
+    }
+
     public static bool EquipGearsetForJob(uint job)
     {
         var module = RaptureGearsetModule.Instance();

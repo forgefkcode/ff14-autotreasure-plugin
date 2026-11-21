@@ -566,6 +566,7 @@ public sealed partial class Runner
     {
         if (Game.Target is { } t && (t.Name.TextValue == _c.ChestName || t.Name.TextValue == _c.DungeonChestName))
             Game.Target = null;
+        WatchActions();
         ResumeAi();
         if (_wrathOn != true)
         {

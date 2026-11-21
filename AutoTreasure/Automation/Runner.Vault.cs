@@ -32,6 +32,7 @@ public sealed partial class Runner
     private const float DoorInteractRange = 2.5f, DoorInteractFar = 6;
     private const double DoorStall = 2;
     private const int DoorTries = 3;
+    private const double DoorRecheck = 5, PassDoorCheck = 8, DoorLockOpened = 8;
     private const float FloorChestApart = 20;
     private const double PassStall = 2, PassAnimMin = 3;
     private const int PullAttempts = 3;
@@ -68,6 +69,8 @@ public sealed partial class Runner
     private bool _doorMidReached, _doorNavCleared;
     private float? _doorSearchDist;
     private string? _doorApproachLog;
+    private double? _doorLockAt;
+    private double _doorLockLongest;
     // passage
     private int _passTries;
     private bool _passAnim;
@@ -86,6 +89,10 @@ public sealed partial class Runner
     private static bool InCutscene() => CutsceneFlagIds.Any(Game.Condition);
     private static List<int> EntryLockFlags() => EntryLockFlagIds.Where(Game.Condition).ToList();
     private static List<IGameObject> TargetableNamed(string name) => Game.Named(name).Where(o => o.IsTargetable).ToList();
+
+    // the chosen door is still there and can be interacted with: it has not opened
+    private bool ChosenDoorInteractable() =>
+        _doorPos is { } p && TargetableNamed(_c.DoorName).Any(d => Game.Distance2D(d.Position, p) <= 3);
 
     private static Vector2? FacingDir() =>
         Game.Player is { } p ? new Vector2(MathF.Sin(p.Rotation), MathF.Cos(p.Rotation)) : null;
@@ -887,6 +894,7 @@ public sealed partial class Runner
         if (await ApproachDoor())
         {
             (_doorOpened, _doorTries) = (false, _doorTries + 1);
+            (_doorLockAt, _doorLockLongest) = (null, 0);
             return Step.DUNGEON_DOOR_WAIT;
         }
         if (TimedOut(Step.DUNGEON_DOOR))
@@ -912,7 +920,10 @@ public sealed partial class Runner
     }
 
     // door animation: it may open, close and open, alarm then rainbow then open, or alarm and throw us out. Wait at least
-    // DoorAnimWait s and until the character can move
+    // DoorAnimWait s and until the character can move. Opened = the chat 「打開了…大門」, a lock of DoorLockOpened s or more,
+    // or the chosen door can no longer be interacted with once the animation is over. A short lock, or the door untargetable
+    // for a moment, is not enough: every passage that ran into a closed door (60 s, then no exit to leave by) came out of a
+    // wait that ended at exactly DoorAnimWait, while a door that opens holds the character 15-30 s
     private Step? DungeonDoorWait()
     {
         if (!InDuty())
@@ -924,24 +935,32 @@ public sealed partial class Runner
             return next;
         if (ConfirmYes())
             return null;
-        // evidence the door reacted: chat 「打開了…大門」, a lock condition, or the chosen door no longer interactable
         if (EntryLockFlags().Count > 0)
-            _doorOpened = true;
-        if (!_doorOpened && !TargetableNamed(_c.DoorName).Any(d => Game.Distance2D(d.Position, _doorPos!.Value) <= 3))
-            _doorOpened = true;
+        {
+            _doorLockAt ??= Elapsed;
+            _doorLockLongest = Math.Max(_doorLockLongest, Elapsed - _doorLockAt.Value);
+        }
+        else
+        {
+            _doorLockAt = null;
+        }
         if (Elapsed < _c.DoorAnimWait || Game.Condition(Cond.OccupiedInEvent) || !Game.PlayerReady)
             return null;
-        if (!_doorOpened)
+        var longLock = _doorLockLongest >= DoorLockOpened; // the opening animation locks the character ~15 s
+        if (!_doorOpened && !longLock && ChosenDoorInteractable())
         {
+            if (Elapsed < _c.DoorAnimWait + DoorRecheck)
+                return null; // the animation may go on (open, close, open)
             if (_doorTries >= DoorTries)
             {
-                LogError($"互動門 {DoorTries} 次都沒有反應（沒有開門訊息、門也還能互動）");
+                LogError($"互動門 {DoorTries} 次都沒有打開（沒有開門訊息、門也還能互動）");
                 return Step.ERROR;
             }
-            Log("門沒有反應（互動沒成功），走近一點再互動");
+            Log($"門沒有打開（{Elapsed:0} 秒內沒有開門訊息、門還能互動，鎖定動畫最長 {_doorLockLongest:0.#} 秒），走近一點再互動");
             _doorMoveAt = null;
             return Step.DUNGEON_DOOR;
         }
+        Log($"門開了（{(_doorOpened ? "開門訊息" : longLock ? $"開門動畫 {_doorLockLongest:0} 秒" : "門已不能互動")}，等了 {Elapsed:0} 秒）");
         return Step.DUNGEON_PASSAGE;
     }
 
@@ -953,6 +972,20 @@ public sealed partial class Runner
         {
             Log("選錯門，被移出寶物庫");
             return Step.DUNGEON_EXIT;
+        }
+        // still on this floor after PassDoorCheck s and the chosen door can still be interacted with: it never opened (the
+        // character is walking into it). Go back and interact again instead of pushing on for the whole timeout
+        if (Elapsed >= PassDoorCheck && EntryLockFlags().Count == 0 && !Busy() && ChosenDoorInteractable())
+        {
+            Game.NavStop();
+            if (_doorTries >= DoorTries)
+            {
+                LogError($"門互動了 {DoorTries} 次都沒有真的打開（走不進去、門還能互動）");
+                return Step.ERROR;
+            }
+            Log($"走了 {Elapsed:0} 秒還在這層、選的門還能互動（門其實沒開），回去重新互動");
+            _doorMoveAt = null;
+            return Step.DUNGEON_DOOR;
         }
         if (_stage == MaxStages - 1)
         {
@@ -1277,6 +1310,13 @@ public sealed partial class Runner
         try { await CloseMarket(); } catch (Exception e) when (e is not OperationCanceledException) { }
         if (_errors >= _c.MaxErrors)
             return Step.END;
+        // a floor room has no exit: a door step that failed with the chosen door still closed tries that door again
+        if (InDuty() && _errorFrom is Step.DUNGEON_DOOR_WAIT or Step.DUNGEON_PASSAGE && ChosenDoorInteractable() && _doorTries < DoorTries)
+        {
+            Log("選的門還能互動，回去重新開門");
+            _doorMoveAt = null;
+            return Step.DUNGEON_DOOR;
+        }
         return InDuty() ? Step.DUNGEON_EXIT : Step.CHECK_MAP;
     }
 
