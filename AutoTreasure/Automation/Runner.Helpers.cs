@@ -214,6 +214,15 @@ public sealed partial class Runner
 
     private static bool MarketOpen() => MarketAddons.Any(Game.AddonReady);
 
+    // the market board's purchase confirmation (TC Addon 1963/1964): 「以14,000(含手續費700)的價格購買「…」。」 -> 14000 (the
+    // total, tax included); null when the text is not a purchase or shows no price
+    private static long? PurchaseTotal(string q)
+    {
+        var m = System.Text.RegularExpressions.Regex.Match(q, @"以\s*([\d,]+)");
+        return q.Contains("購買", StringComparison.Ordinal) && m.Success
+            && long.TryParse(m.Groups[1].Value.Replace(",", ""), out var v) && v > 0 ? v : null;
+    }
+
     // close the market windows inside out, each until it is really gone
     private async Task CloseMarket()
     {

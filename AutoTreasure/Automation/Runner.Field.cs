@@ -901,14 +901,26 @@ public sealed partial class Runner
         return Step.MB_BUY;
     }
 
+    // most a purchase may cost: the listing's price plus the market tax (5%), with a little slack
+    private long PriceLimit => (long)Math.Ceiling(_buyPrice * 1.06) + 1;
+
     private async Task<Step?> MbBuy()
     {
         if (UndecipheredCount() > _mapCountBefore)
         {
+            var paid = _gilBefore - Game.Gil;
             MapsBought += UndecipheredCount() - _mapCountBefore;
-            GilSpent += _buyPrice;
+            GilSpent += paid > 0 ? paid : _buyPrice;
             _worldChosen = false; // compare again for the next map
             _badWorlds.Clear();
+            if (paid > PriceLimit)
+            {
+                LogError($"實際付了 {paid} gil，比清單上的 {_buyPrice} gil 多，停止");
+                await CloseMarket();
+                return Step.END;
+            }
+            if (paid > 0)
+                Log($"買到了，實付 {paid} gil");
             return Step.MB_CLOSE; // always close the board after one map: deciphering needs it closed
         }
         // paid but the map did not increase = bought something else: stop at once
@@ -918,8 +930,27 @@ public sealed partial class Runner
             await CloseMarket();
             return Step.END;
         }
-        if (ConfirmYes())
+        // the purchase confirmation: say yes only when its price matches the listing that was checked
+        if (Game.AddonReady("SelectYesno") && !DeclinePartyInvite())
+        {
+            var q = Game.AddonText("SelectYesno");
+            if (PurchaseTotal(q) is not { } total)
+            {
+                LogError($"購買確認視窗讀不到價格（{q}），按「否」並停止");
+                Game.Callback("SelectYesno", true, 1);
+                await CloseMarket();
+                return Step.END;
+            }
+            if (total > PriceLimit || total > _c.MaxMapPrice * 1.06 + 1)
+            {
+                LogError($"購買確認視窗的價格 {total} gil，跟清單上的 {_buyPrice} gil 對不上（MaxMapPrice {_c.MaxMapPrice}），按「否」不買");
+                Game.Callback("SelectYesno", true, 1);
+                return Step.MB_FAIL;
+            }
+            Log($"確認價格 {total} gil，購買");
+            Game.Callback("SelectYesno", true, 0);
             return null;
+        }
         return TimedOut(Step.MB_BUY) ? Step.ERROR : null;
     }
 
