@@ -62,10 +62,12 @@ public sealed class Plugin : IDalamudPlugin
         CommandManager.AddHandler(ShortCommand, new CommandInfo(OnCommand) { HelpMessage = "同 " + Command });
         PluginInterface.UiBuilder.Draw += _windows.Draw;
         PluginInterface.UiBuilder.OpenMainUi += _main.Toggle;
+        Automation.Game.WatchRsr();
     }
 
     public void Dispose()
     {
+        Automation.Game.UnwatchRsr();
         PluginInterface.UiBuilder.Draw -= _windows.Draw;
         PluginInterface.UiBuilder.OpenMainUi -= _main.Toggle;
         CommandManager.RemoveHandler(Command);

@@ -3,7 +3,7 @@
   <!-- Built against the Dalamud that the TC launcher installed (API 13 / net9). Override with -p:DalamudLibPath=...
        Build:  dotnet build AutoTreasure -c Release   (bin\Release\AutoTreasure\latest.zip is the release asset) -->
   <PropertyGroup>
-    <Version>0.6.11.0</Version>
+    <Version>0.6.12.0</Version>
     <TargetFramework>net9.0-windows</TargetFramework>
     <Platforms>x64</Platforms>
     <PlatformTarget>x64</PlatformTarget>

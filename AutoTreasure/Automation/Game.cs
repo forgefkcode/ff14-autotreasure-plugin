@@ -132,6 +132,37 @@ public static unsafe class Game
     public static bool UseActionOn(uint actionId, IGameObject target) =>
         ActionManager.Instance()->UseAction(ActionType.Action, actionId, target.GameObjectId);
 
+    public static string ActionName(uint id) =>
+        id == 0 ? "無" : Plugin.DataManager.GetExcelSheet<Lumina.Excel.Sheets.Action>().GetRowOrDefault(id)?.Name.ExtractText() is { Length: > 0 } n ? n : id.ToString();
+
+    // RSR's next GCD and next action, from its IPC events (sent only when they change; 0 = none). Seen: after the character
+    // lost control, RSR picked no GCD for 23 minutes and only used abilities on itself, while the game allowed Heavy Swing.
+    public static uint RsrNextGcd { get; private set; }
+    public static uint RsrNextAction { get; private set; }
+    private static Dalamud.Plugin.Ipc.ICallGateSubscriber<uint, object>? _rsrGcdSub, _rsrActionSub;
+    private static readonly System.Action<uint> OnRsrGcd = id => RsrNextGcd = id, OnRsrAction = id => RsrNextAction = id;
+
+    public static void WatchRsr()
+    {
+        try
+        {
+            _rsrGcdSub = Plugin.PluginInterface.GetIpcSubscriber<uint, object>("RotationSolverReborn.ActionUpdater.NextGCDActionChanged");
+            _rsrGcdSub.Subscribe(OnRsrGcd);
+            _rsrActionSub = Plugin.PluginInterface.GetIpcSubscriber<uint, object>("RotationSolverReborn.ActionUpdater.NextActionChanged");
+            _rsrActionSub.Subscribe(OnRsrAction);
+        }
+        catch (Exception e)
+        {
+            Plugin.Log.Verbose($"RSR IPC subscribe failed: {e.Message}");
+        }
+    }
+
+    public static void UnwatchRsr()
+    {
+        _rsrGcdSub?.Unsubscribe(OnRsrGcd);
+        _rsrActionSub?.Unsubscribe(OnRsrAction);
+    }
+
     // ---------------------------------------------------------------- diagnosis (why actions do not go off)
 
     // the statuses on the player: id, name, seconds left, and whether the game locks actions while it is on
