@@ -226,7 +226,7 @@ public sealed partial class Runner : IDisposable
         Step.MB_TRAVEL => MbTravel(),
         Step.MB_OPEN => MbOpen(),
         Step.MB_SEARCH => MbSearch(),
-        Step.MB_LIST => Sync(MbList),
+        Step.MB_LIST => MbList(),
         Step.MB_BUY => MbBuy(),
         Step.MB_CLOSE => MbClose(),
         Step.MB_FAIL => MbFail(),

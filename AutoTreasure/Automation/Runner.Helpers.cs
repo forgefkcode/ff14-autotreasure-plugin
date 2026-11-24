@@ -214,13 +214,37 @@ public sealed partial class Runner
 
     private static bool MarketOpen() => MarketAddons.Any(Game.AddonReady);
 
-    // the market board's purchase confirmation (TC Addon 1963/1964): 「以14,000(含手續費700)的價格購買「…」。」 -> 14000 (the
-    // total, tax included); null when the text is not a purchase or shows no price
-    private static long? PurchaseTotal(string q)
+    // Gil as the TC client writes it: 「9,999」, 「1萬」, 「1萬498」 (10,498), 「100萬」, 「2億3456萬」. Spaces, commas and the gil
+    // icon are skipped; anything else (a decimal point, other words, no digit) gives null: a price is never guessed. Reading
+    // only the digits once turned 「100萬」 into 100 gil and bought two maps at 1,000,000 each.
+    internal static long? ParseGil(string s)
     {
-        var m = System.Text.RegularExpressions.Regex.Match(q, @"以\s*([\d,]+)");
-        return q.Contains("購買", StringComparison.Ordinal) && m.Success
-            && long.TryParse(m.Groups[1].Value.Replace(",", ""), out var v) && v > 0 ? v : null;
+        var t = new string(s.Where(c => !char.IsWhiteSpace(c) && c is not (',' or '，') && c is not (>= '' and <= ''))
+            .ToArray()).Replace('万', '萬').Replace('亿', '億');
+        var m = System.Text.RegularExpressions.Regex.Match(t, @"^(?:(\d{1,4})億)?(?:(\d{1,4})萬)?(\d{0,9})$");
+        if (!m.Success || !t.Any(char.IsDigit))
+            return null;
+        long v = 0;
+        if (m.Groups[1].Success)
+            v += long.Parse(m.Groups[1].Value) * 100_000_000;
+        if (m.Groups[2].Success)
+            v += long.Parse(m.Groups[2].Value) * 10_000;
+        if (m.Groups[3].Value != "")
+            v += long.Parse(m.Groups[3].Value);
+        return v;
+    }
+
+    // the market board's purchase confirmation (TC Addon 1963/1964): 「以1萬5750(含手續費750)的價格購買「…」。」 -> 15750 (the
+    // total, tax included); null when the text is not a purchase or its price cannot be read
+    internal static long? PurchaseTotal(string q)
+    {
+        var i = q.IndexOf('以');
+        if (i < 0 || !q.Contains("購買", StringComparison.Ordinal))
+            return null;
+        var rest = q[(i + 1)..];
+        var end = new[] { rest.IndexOf('('), rest.IndexOf('（'), rest.IndexOf("的價格", StringComparison.Ordinal) }
+            .Where(x => x > 0).DefaultIfEmpty(-1).Min();
+        return end > 0 ? ParseGil(rest[..end]) : null;
     }
 
     // close the market windows inside out, each until it is really gone
@@ -263,18 +287,14 @@ public sealed partial class Runner
         return false;
     }
 
-    // the cheapest listing's price and quantity; null while loading, (0, 0) when nothing is listed
-    private static (int Price, int Count)? MarketFirstListing()
+    // the listings window's first row as text: price, quantity; ("", "") while loading or when nothing is listed
+    private static (string Price, string Count) MarketFirstRowText() =>
+        (Game.NodeText("ItemSearchResult", 1, 26, 4, 5), Game.NodeText("ItemSearchResult", 1, 26, 4, 6));
+
+    private static bool MarketShowsNothing()
     {
-        static int Digits(string s) => int.TryParse(new string(s.Where(char.IsDigit).ToArray()), out var v) ? v : 0;
-        var price = Digits(Game.NodeText("ItemSearchResult", 1, 26, 4, 5));
-        var count = Digits(Game.NodeText("ItemSearchResult", 1, 26, 4, 6));
-        if (price > 0 && count > 0)
-            return (price, count);
         var msg = Game.NodeText("ItemSearchResult", 1, 5);
-        if (msg.Contains("No items found", StringComparison.Ordinal) || msg.Contains("沒有", StringComparison.Ordinal))
-            return (0, 0);
-        return null;
+        return msg.Contains("No items found", StringComparison.Ordinal) || msg.Contains("沒有", StringComparison.Ordinal);
     }
 
     // ---------------------------------------------------------------- aetherytes

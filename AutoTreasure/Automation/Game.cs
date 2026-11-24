@@ -344,6 +344,46 @@ public static unsafe class Game
         return string.Join(" ", parts);
     }
 
+    // ---------------------------------------------------------------- market board data
+    // The listings the server sent for the last search (InfoProxyItemSearch), as numbers: the window's text writes large prices
+    // with 萬 (「100萬」), which once read as 100 gil.
+
+    public readonly record struct MbListing(ulong Id, uint ItemId, uint UnitPrice, uint Tax, uint Quantity);
+
+    private static FFXIVClientStructs.FFXIV.Client.UI.Info.InfoProxyItemSearch* ItemSearchProxy()
+    {
+        var info = FFXIVClientStructs.FFXIV.Client.UI.Info.InfoModule.Instance();
+        return info == null ? null
+            : (FFXIVClientStructs.FFXIV.Client.UI.Info.InfoProxyItemSearch*)info->GetInfoProxyById(
+                FFXIVClientStructs.FFXIV.Client.UI.Info.InfoProxyId.ItemSearch);
+    }
+
+    public static (uint SearchItemId, List<MbListing> Listings)? MarketListings()
+    {
+        var p = ItemSearchProxy();
+        if (p == null)
+            return null;
+        var list = new List<MbListing>();
+        var n = Math.Min((int)p->ListingCount, p->Listings.Length);
+        for (var i = 0; i < n; i++)
+        {
+            var l = p->Listings[i];
+            if (l.ListingId != 0)
+                list.Add(new MbListing(l.ListingId, l.ItemId, l.UnitPrice, l.TotalTax, l.Quantity));
+        }
+        return (p->SearchItemId, list);
+    }
+
+    // the listing the game is about to buy or last bought (set when a listing is chosen); null when none
+    public static MbListing? LastPurchaseListing()
+    {
+        var p = ItemSearchProxy();
+        if (p == null || !p->LastPurchasedMarketboardItem.Present)
+            return null;
+        var l = p->LastPurchasedMarketboardItem;
+        return new MbListing(l.ListingId, l.ItemId, l.UnitPrice, l.TotalTax, l.Quantity);
+    }
+
     // ---------------------------------------------------------------- vnavmesh
 
     private static T? Ipc<T>(string name, Func<T> call, T? fallback = default)

@@ -869,36 +869,69 @@ public sealed partial class Runner
         return TimedOut(Step.MB_SEARCH) ? Step.ERROR : null;
     }
 
-    private Step? MbList()
+    // Buy only what was checked twice: the first row's text (parsed with 萬, ParseGil) must equal the cheapest listing of this map
+    // in the data the server sent (Game.MarketListings). Anything unreadable or disagreeing for MbAgreeWait s stops the run.
+    private const double MbAgreeWait = 3;
+    private Game.MbListing _buyListing;
+    private ulong _lastPurchaseIdBefore;
+
+    private async Task<Step?> MbList()
     {
-        if (MarketFirstListing() is not { } l)
+        var (priceText, countText) = MarketFirstRowText();
+        if (priceText == "")
+        {
+            if (MarketShowsNothing())
+            {
+                LogError("市場板上沒有這張地圖");
+                return Step.MB_FAIL;
+            }
             return TimedOut(Step.MB_LIST) ? Step.ERROR : null;
-        if (l.Price == 0)
+        }
+        if (ParseGil(priceText) is not { } price || price <= 0 || ParseGil(countText) is not { } count || count <= 0)
+            return Elapsed < MbAgreeWait ? null // the row may still be filling in
+                : await MbStop($"看不懂市場板第一筆的價格「{priceText}」或數量「{countText}」，不買");
+        var mine = Game.MarketListings() is { } mem && mem.SearchItemId == _map.MapItemId
+            ? mem.Listings.Where(l => l.ItemId == _map.MapItemId).ToList() : [];
+        if (mine.Count == 0 || mine.Min(l => l.UnitPrice) != price)
         {
-            LogError("市場板上沒有這張地圖");
+            if (Elapsed < MbAgreeWait)
+                return null; // the listings may still be arriving
+            var cheapest = mine.Count == 0 ? "沒有資料" : $"{mine.Min(l => l.UnitPrice)} gil";
+            return await MbStop($"市場板第一筆顯示「{priceText}」（{price} gil），跟伺服器資料裡最便宜的一筆（{cheapest}）對不上，不買");
+        }
+        var l = mine.Where(x => x.UnitPrice == price).First();
+        if (count > 1 || l.Quantity > 1)
+        {
+            LogError($"最便宜一筆是 {Math.Max(count, l.Quantity)} 張一起賣，地圖是獨特物品無法一次買多張");
             return Step.MB_FAIL;
         }
-        if (l.Count > 1)
+        if (price > _c.MaxMapPrice)
         {
-            LogError($"最便宜一筆是 {l.Count} 張一起賣，地圖是獨特物品無法一次買多張");
+            LogError($"最便宜一張 {price} gil，超過 MaxMapPrice {_c.MaxMapPrice}");
             return Step.MB_FAIL;
         }
-        if (l.Price > _c.MaxMapPrice)
-        {
-            LogError($"最便宜一張 {l.Price} gil，超過 MaxMapPrice {_c.MaxMapPrice}");
-            return Step.MB_FAIL;
-        }
-        if (Game.Gil - (long)l.Price * l.Count < _c.GilFloor)
+        if (Game.Gil - (l.UnitPrice + l.Tax) < _c.GilFloor)
         {
             LogError("gil 不足（會低於 GilFloor）");
             return Step.MB_FAIL;
         }
         _mapCountBefore = UndecipheredCount();
         _gilBefore = Game.Gil;
-        _buyPrice = (long)l.Price * l.Count;
-        Log($"購買 {l.Count} 張，單價 {l.Price} gil");
+        _buyPrice = l.UnitPrice;
+        _buyListing = l;
+        _lastPurchaseIdBefore = Game.LastPurchaseListing()?.Id ?? 0;
+        Log($"購買 1 張，單價 {l.UnitPrice} gil＋手續費 {l.Tax}（畫面「{priceText}」，跟伺服器資料核對過）");
         Game.Callback("ItemSearchResult", true, 2, 0);
         return Step.MB_BUY;
+    }
+
+    private async Task<Step?> MbStop(string why)
+    {
+        LogError(why + "，停止");
+        if (Game.AddonReady("SelectYesno"))
+            Game.Callback("SelectYesno", true, 1);
+        await CloseMarket();
+        return Step.END;
     }
 
     // most a purchase may cost: the listing's price plus the market tax (5%), with a little slack
@@ -930,24 +963,20 @@ public sealed partial class Runner
             await CloseMarket();
             return Step.END;
         }
-        // the purchase confirmation: say yes only when its price matches the listing that was checked
+        // the purchase confirmation: say yes only when its total is the checked listing's price plus tax (never below the
+        // price: a misread number is small), within MaxMapPrice, and the listing the game chose is that one
         if (Game.AddonReady("SelectYesno") && !DeclinePartyInvite())
         {
             var q = Game.AddonText("SelectYesno");
             if (PurchaseTotal(q) is not { } total)
-            {
-                LogError($"購買確認視窗讀不到價格（{q}），按「否」並停止");
-                Game.Callback("SelectYesno", true, 1);
-                await CloseMarket();
-                return Step.END;
-            }
-            if (total > PriceLimit || total > _c.MaxMapPrice * 1.06 + 1)
-            {
-                LogError($"購買確認視窗的價格 {total} gil，跟清單上的 {_buyPrice} gil 對不上（MaxMapPrice {_c.MaxMapPrice}），按「否」不買");
-                Game.Callback("SelectYesno", true, 1);
-                return Step.MB_FAIL;
-            }
-            Log($"確認價格 {total} gil，購買");
+                return await MbStop($"購買確認視窗讀不到價格（{q}），按「否」");
+            var expected = _buyListing.UnitPrice + _buyListing.Tax;
+            if (total < _buyPrice || total > PriceLimit || total > _c.MaxMapPrice * 1.06 + 1)
+                return await MbStop($"購買確認視窗的價格 {total} gil（「{q}」），跟核對過的 {expected} gil 對不上，按「否」");
+            if (Game.LastPurchaseListing() is { } chosen && chosen.Id != _lastPurchaseIdBefore
+                && (chosen.ItemId != _map.MapItemId || chosen.UnitPrice != _buyListing.UnitPrice || chosen.Quantity != 1))
+                return await MbStop($"遊戲選中的上架（物品 {chosen.ItemId}，單價 {chosen.UnitPrice}，{chosen.Quantity} 個）不是核對過的那筆，按「否」");
+            Log($"確認價格 {total} gil（核對過的 {expected} gil），購買");
             Game.Callback("SelectYesno", true, 0);
             return null;
         }
