@@ -14,7 +14,7 @@ public sealed partial class Runner
     // contents), "store" (inventory -> saddlebag) or "take" (saddlebag -> inventory)
     private bool _saddleOff;
     private string _saddleGoal = "";
-    private int _saddleBefore;
+    private int _saddleBefore, _invBefore;
     private double? _saddleOpenAt, _saddleMoveAt;
     private readonly HashSet<uint> _badWorlds = [];
     private uint _targetWorld;
@@ -1039,7 +1039,7 @@ public sealed partial class Runner
     private Step Saddlebag(string goal)
     {
         _saddleGoal = goal;
-        _saddleBefore = SaddlebagMaps();
+        (_saddleBefore, _invBefore) = (SaddlebagMaps(), UndecipheredCount());
         (_saddleOpenAt, _saddleMoveAt) = (null, null);
         return Step.SADDLEBAG;
     }
@@ -1060,10 +1060,22 @@ public sealed partial class Runner
             return TimedOut(Step.SADDLEBAG) ? SaddlebagGiveUp("打不開陸行鳥鞍囊（還沒解鎖？）") : null;
         }
         if (_saddleGoal == "look")
-            _saddleBefore = SaddlebagMaps();
+            (_saddleBefore, _invBefore) = (SaddlebagMaps(), UndecipheredCount());
+        // done only when both sides changed and still show it a moment later: the saddlebag count can go up before the
+        // inventory count goes down (seen: right after a store the inventory still showed the map and it was deciphered)
+        bool Moved() => _saddleGoal switch
+        {
+            "store" => SaddlebagMaps() > _saddleBefore && UndecipheredCount() < _invBefore,
+            "take" => SaddlebagMaps() < _saddleBefore && UndecipheredCount() > _invBefore,
+            _ => true,
+        };
         var now = SaddlebagMaps();
-        var done = _saddleGoal switch { "store" => now > _saddleBefore, "take" => now < _saddleBefore, _ => true };
-        if (done)
+        if (Moved() && _saddleGoal != "look")
+        {
+            await Wait(1.5);
+            now = SaddlebagMaps();
+        }
+        if (Moved())
         {
             Game.HideAddon(Game.SaddlebagAddon);
             Log(_saddleGoal switch
