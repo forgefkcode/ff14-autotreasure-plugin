@@ -68,6 +68,60 @@ public static unsafe class Game
     public static int KeyItemCount(uint itemId) => InventoryManager.Instance()->GetItemCountInContainer(itemId, InventoryType.KeyItems);
     public static long Gil => InventoryManager.Instance()->GetGil();
 
+    // ---------------------------------------------------------------- chocobo saddlebag
+    // The game sends the saddlebag's contents only after it is first opened in a session (IsLoaded); the premium half stays
+    // unloaded without the subscription.
+
+    private static readonly InventoryType[] Bags = [InventoryType.Inventory1, InventoryType.Inventory2, InventoryType.Inventory3, InventoryType.Inventory4];
+    private static readonly InventoryType[] SaddleBags = [InventoryType.SaddleBag1, InventoryType.SaddleBag2, InventoryType.PremiumSaddleBag1, InventoryType.PremiumSaddleBag2];
+    public const string SaddlebagAddon = "InventoryBuddy";
+
+    private static InventoryContainer* LoadedContainer(InventoryType t)
+    {
+        var c = InventoryManager.Instance()->GetInventoryContainer(t);
+        return c != null && c->IsLoaded ? c : null;
+    }
+
+    public static bool SaddlebagLoaded => LoadedContainer(InventoryType.SaddleBag1) != null;
+
+    public static int SaddlebagCount(uint itemId) =>
+        SaddleBags.Where(t => LoadedContainer(t) != null).Sum(t => InventoryManager.Instance()->GetItemCountInContainer(itemId, t));
+
+    // moves one of the item between the inventory and the saddlebag, into the first empty slot; false when the item or an
+    // empty slot is not there
+    public static bool MoveItem(uint itemId, bool toSaddlebag)
+    {
+        var (from, to) = toSaddlebag ? (Bags, SaddleBags) : (SaddleBags, Bags);
+        (InventoryType Type, ushort Slot)? Find(InventoryType[] types, uint id)
+        {
+            foreach (var t in types)
+            {
+                var c = LoadedContainer(t);
+                for (var i = 0; c != null && i < c->Size; i++)
+                    if (c->GetInventorySlot(i) is var s && s != null && s->ItemId == id)
+                        return (t, (ushort)i);
+            }
+            return null;
+        }
+        if (Find(from, itemId) is not { } src || Find(to, 0) is not { } dst)
+            return false;
+        InventoryManager.Instance()->MoveItemSlot(src.Type, src.Slot, dst.Type, dst.Slot, true);
+        return true;
+    }
+
+    // the main menu's 陸行鳥鞍囊 (MainCommand), found by name since the row id is not written down anywhere here
+    public static uint? SaddlebagCommand => Plugin.DataManager.GetExcelSheet<MainCommand>()
+        .FirstOrDefault(r => r.Name.ExtractText().Contains("鞍囊", StringComparison.Ordinal)) is { RowId: > 0 } r ? r.RowId : null;
+
+    public static void MainMenu(uint commandId) => FFXIVClientStructs.FFXIV.Client.UI.UIModule.Instance()->ExecuteMainCommand(commandId);
+
+    public static void HideAddon(string name)
+    {
+        var a = Addon(name);
+        if (a != null && a->IsVisible)
+            a->Close(true);
+    }
+
     // ---------------------------------------------------------------- objects
 
     public static IEnumerable<IGameObject> Named(string name) => Plugin.Objects.Where(o => o.Name.TextValue == name);

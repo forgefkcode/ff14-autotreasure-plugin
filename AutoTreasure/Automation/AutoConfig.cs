@@ -7,6 +7,7 @@ public sealed class AutoConfig
     public int MaxRounds { get; set; }
     public int MaxMaps { get; set; }
     public bool AutoBuy { get; set; } = true;
+    public bool SaddlebagMap { get; set; }
     public string RotationPlugin { get; set; } = "Auto";
     public string BossModPlugin { get; set; } = "Auto";
     public bool CrossWorld { get; set; } = true;

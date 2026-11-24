@@ -9,6 +9,13 @@ public sealed partial class Runner
 
     private bool _sent, _teleportSent, _cityTeleportSent, _digSent, _spotLogged, _manualPrompted, _leashing;
     private bool _roundStarted, _roundBuying, _worldChosen, _buyBlocked;
+    // SaddlebagMap: a third map waits in the chocobo saddlebag. _saddleOff = the saddlebag failed once this run (not unlocked,
+    // full, ...), so it is left out from then on; _saddleGoal = what SADDLEBAG does: "look" (open it so the game sends its
+    // contents), "store" (inventory -> saddlebag) or "take" (saddlebag -> inventory)
+    private bool _saddleOff;
+    private string _saddleGoal = "";
+    private int _saddleBefore;
+    private double? _saddleOpenAt, _saddleMoveAt;
     private readonly HashSet<uint> _badWorlds = [];
     private uint _targetWorld;
     private string _targetWorldName = "";
@@ -104,7 +111,8 @@ public sealed partial class Runner
             LogError("AutoBuy 開啟但未設定 MaxMapPrice");
             return Step.END;
         }
-        Log($"身上已解讀的圖：{(HasDecipheredMap() ? "有" : "沒有")}，未解讀：{UndecipheredCount()} 張");
+        Log($"身上已解讀的圖：{(HasDecipheredMap() ? "有" : "沒有")}，未解讀：{UndecipheredCount()} 張"
+            + (_c.SaddlebagMap ? (Game.SaddlebagLoaded ? $"，陸行鳥鞍囊：{SaddlebagMaps()} 張" : "，陸行鳥鞍囊：待會打開看") : ""));
         if (Game.ItemName(_map.MapItemId) is not { } name)
         {
             LogError($"從遊戲資料查不到物品 {_map.MapItemId} 的名稱");
@@ -127,6 +135,8 @@ public sealed partial class Runner
     // purchase the price is checked again: with CrossWorld, Universalis' cheapest world first (PICK_WORLD -> WORLD_TRAVEL).
     // Order: compare -> buy 1 -> close the board -> decipher -> compare -> buy 1 -> close -> go dig. A world that cannot sell is
     // excluded and the next cheapest is tried; when none can, no more buying, the maps on hand are dug and the run ends.
+    // With SaddlebagMap a round holds 3: buy 1 -> put it in the saddlebag -> buy 1 -> decipher -> buy 1 -> dig the deciphered
+    // one, then the inventory one, then take the saddlebag one out and dig it.
     private Step? CheckMap()
     {
         if (_c.MaxMaps > 0 && MapsDone >= _c.MaxMaps)
@@ -134,13 +144,18 @@ public sealed partial class Runner
             Log("已達 MaxMaps");
             return Step.END;
         }
+        var useSaddle = _c.SaddlebagMap && !_saddleOff;
+        if (useSaddle && !Game.SaddlebagLoaded)
+            return Saddlebag("look");
         var hasDeciphered = HasDecipheredMap();
         var hasUndeciphered = UndecipheredCount() > 0;
+        var inSaddle = useSaddle && SaddlebagMaps() > 0;
         if (_c.AutoBuy && !_buyBlocked)
         {
             var firstCheck = !_roundStarted;
             _roundStarted = true;
-            if (!_roundBuying && (!hasDeciphered && !hasUndeciphered || firstCheck && !(hasDeciphered && hasUndeciphered)))
+            var full = hasDeciphered && hasUndeciphered && (inSaddle || !useSaddle);
+            if (!_roundBuying && (!hasDeciphered && !hasUndeciphered && !inSaddle || firstCheck && !full))
             {
                 if (!firstCheck)
                 {
@@ -158,6 +173,8 @@ public sealed partial class Runner
             }
             if (_roundBuying)
             {
+                if (useSaddle && !inSaddle && hasUndeciphered)
+                    return Saddlebag("store");
                 if (!hasUndeciphered)
                     return _c.CrossWorld && !_worldChosen ? Step.PICK_WORLD : Step.MB_TRAVEL;
                 if (!hasDeciphered)
@@ -166,7 +183,7 @@ public sealed partial class Runner
                     return Step.DECIPHER;
                 }
                 _roundBuying = false;
-                Log("本輪買齊（1 張已解讀 + 1 張未解讀），出發挖寶");
+                Log(useSaddle ? "本輪買齊（1 張已解讀 + 背包 1 張 + 陸行鳥鞍囊 1 張），出發挖寶" : "本輪買齊（1 張已解讀 + 1 張未解讀），出發挖寶");
             }
         }
         if (HasDecipheredMap())
@@ -176,6 +193,8 @@ public sealed partial class Runner
             _retries = 0;
             return Step.DECIPHER;
         }
+        if (inSaddle)
+            return Saddlebag("take");
         Log($"沒有 {_map.Grade} 地圖了");
         return Step.END;
     }
@@ -1010,6 +1029,67 @@ public sealed partial class Runner
         }
         _buyBlocked = true;
         _roundBuying = false;
-        return HasDecipheredMap() || UndecipheredCount() > 0 ? Step.CHECK_MAP : Step.END;
+        return HasDecipheredMap() || UndecipheredCount() > 0 || _c.SaddlebagMap && !_saddleOff && SaddlebagMaps() > 0 ? Step.CHECK_MAP : Step.END;
+    }
+
+    // ---------------------------------------------------------------- chocobo saddlebag (SaddlebagMap)
+
+    private int SaddlebagMaps() => Game.SaddlebagCount(_map.MapItemId);
+
+    private Step Saddlebag(string goal)
+    {
+        _saddleGoal = goal;
+        _saddleBefore = SaddlebagMaps();
+        (_saddleOpenAt, _saddleMoveAt) = (null, null);
+        return Step.SADDLEBAG;
+    }
+
+    // open the saddlebag from the main menu (again after 3 s without it), move the map, check the count, close it
+    private async Task<Step?> SaddlebagStep()
+    {
+        EnsureWrathOff();
+        if (!Game.AddonReady(Game.SaddlebagAddon) || !Game.SaddlebagLoaded)
+        {
+            if (Game.PlayerReady && Elapsed - (_saddleOpenAt ?? -10) > 3)
+            {
+                if (Game.SaddlebagCommand is not { } cmd)
+                    return SaddlebagGiveUp("遊戲資料裡找不到「陸行鳥鞍囊」的主選單指令");
+                Game.MainMenu(cmd);
+                _saddleOpenAt = Elapsed;
+            }
+            return TimedOut(Step.SADDLEBAG) ? SaddlebagGiveUp("打不開陸行鳥鞍囊（還沒解鎖？）") : null;
+        }
+        if (_saddleGoal == "look")
+            _saddleBefore = SaddlebagMaps();
+        var now = SaddlebagMaps();
+        var done = _saddleGoal switch { "store" => now > _saddleBefore, "take" => now < _saddleBefore, _ => true };
+        if (done)
+        {
+            Game.HideAddon(Game.SaddlebagAddon);
+            Log(_saddleGoal switch
+            {
+                "store" => $"把「{_mapItemName}」放進陸行鳥鞍囊",
+                "take" => $"從陸行鳥鞍囊拿出「{_mapItemName}」",
+                _ => $"陸行鳥鞍囊裡有 {now} 張「{_mapItemName}」",
+            });
+            await Wait(1);
+            return Step.CHECK_MAP;
+        }
+        if (Elapsed - (_saddleMoveAt ?? -10) > 3)
+        {
+            var store = _saddleGoal == "store";
+            if (!Game.MoveItem(_map.MapItemId, store))
+                return SaddlebagGiveUp(store ? "陸行鳥鞍囊沒有空格（或背包裡找不到地圖）" : "背包沒有空格（或鞍囊裡找不到地圖）");
+            _saddleMoveAt = Elapsed;
+        }
+        return TimedOut(Step.SADDLEBAG) ? SaddlebagGiveUp("移動地圖後數量沒變") : null;
+    }
+
+    private Step SaddlebagGiveUp(string why)
+    {
+        LogError(why + "，這次不再用陸行鳥鞍囊放圖");
+        _saddleOff = true;
+        Game.HideAddon(Game.SaddlebagAddon);
+        return Step.CHECK_MAP;
     }
 }

@@ -7,7 +7,7 @@ namespace AutoTreasure.Automation;
 public enum Step
 {
     INIT, CHECK_MAP, DECIPHER, LOCATE, TRAVEL, DIG, OPEN_COFFER, FIELD_COMBAT, LOOT, PORTAL_CHECK, ENTER_DUNGEON, DEAD, FIELD_FIGHT,
-    PICK_WORLD, WORLD_TRAVEL, MB_TRAVEL, MB_OPEN, MB_SEARCH, MB_LIST, MB_BUY, MB_CLOSE, MB_FAIL,
+    PICK_WORLD, WORLD_TRAVEL, MB_TRAVEL, MB_OPEN, MB_SEARCH, MB_LIST, MB_BUY, MB_CLOSE, MB_FAIL, SADDLEBAG,
     DUNGEON_INIT, DUNGEON_ENTRY, DUNGEON_CHEST, DUNGEON_COMBAT, DUNGEON_LOOT, DUNGEON_GAMBLE, DUNGEON_DOOR, DUNGEON_DOOR_WAIT,
     DUNGEON_PASSAGE, DUNGEON_PULL, DUNGEON_SPHERE, DUNGEON_ROULETTE, DUNGEON_R_COMBAT, DUNGEON_R_CHEST, DUNGEON_EXIT, RELOGIN, ERROR, END,
 }
@@ -34,7 +34,7 @@ public sealed partial class Runner : IDisposable
         [Step.CHECK_MAP] = 3, [Step.DECIPHER] = 10, [Step.TRAVEL] = 180, [Step.DIG] = 8, [Step.OPEN_COFFER] = 15,
         [Step.FIELD_COMBAT] = 600, [Step.FIELD_FIGHT] = 600, [Step.LOOT] = 20, [Step.ENTER_DUNGEON] = 60, [Step.DEAD] = 120,
         [Step.WORLD_TRAVEL] = 300, [Step.MB_TRAVEL] = 120, [Step.MB_OPEN] = 15, [Step.MB_SEARCH] = 180, [Step.MB_LIST] = 15,
-        [Step.MB_BUY] = 15, [Step.MB_CLOSE] = 10, [Step.DUNGEON_INIT] = 30, [Step.DUNGEON_COMBAT] = 3600, [Step.DUNGEON_CHEST] = 120,
+        [Step.MB_BUY] = 15, [Step.MB_CLOSE] = 10, [Step.SADDLEBAG] = 20, [Step.DUNGEON_INIT] = 30, [Step.DUNGEON_COMBAT] = 3600, [Step.DUNGEON_CHEST] = 120,
         [Step.DUNGEON_LOOT] = 180, [Step.DUNGEON_DOOR] = 90, [Step.DUNGEON_DOOR_WAIT] = 60, [Step.DUNGEON_PASSAGE] = 60,
         [Step.DUNGEON_PULL] = 180, [Step.DUNGEON_EXIT] = 180, [Step.DUNGEON_ENTRY] = 150, [Step.DUNGEON_SPHERE] = 15,
         [Step.DUNGEON_ROULETTE] = 150, [Step.DUNGEON_R_COMBAT] = 3600, [Step.DUNGEON_R_CHEST] = 120, [Step.RELOGIN] = 3600,
@@ -42,7 +42,7 @@ public sealed partial class Runner : IDisposable
 
     // steps that should not have a fight; when attacked in the field, FIELD_FIGHT clears it first and comes back
     private static readonly HashSet<Step> Interruptible =
-        [Step.CHECK_MAP, Step.DECIPHER, Step.LOCATE, Step.TRAVEL, Step.DIG, Step.LOOT, Step.PORTAL_CHECK, Step.ENTER_DUNGEON];
+        [Step.CHECK_MAP, Step.DECIPHER, Step.SADDLEBAG, Step.LOCATE, Step.TRAVEL, Step.DIG, Step.LOOT, Step.PORTAL_CHECK, Step.ENTER_DUNGEON];
 
     // steps that handle the loading screen themselves
     private static readonly HashSet<Step> WaitsOnLoading =
@@ -230,6 +230,7 @@ public sealed partial class Runner : IDisposable
         Step.MB_BUY => MbBuy(),
         Step.MB_CLOSE => MbClose(),
         Step.MB_FAIL => MbFail(),
+        Step.SADDLEBAG => SaddlebagStep(),
         Step.DUNGEON_INIT => Sync(DungeonInit),
         Step.DUNGEON_ENTRY => Sync(DungeonEntry),
         Step.DUNGEON_SPHERE => DungeonSphere(),

@@ -199,7 +199,7 @@ public sealed class AutoTab : IDisposable
 
         if (ImGui.CollapsingHeader("基本", ImGuiTreeNodeFlags.DefaultOpen))
         {
-            C.MaxRounds = Int("MaxRounds 輪數", C.MaxRounds, "要刷幾輪（一輪 = 買齊 1 張已解讀 + 1 張未解讀並兩張都挖完），0 = 無限循環", 0, 9999);
+            C.MaxRounds = Int("MaxRounds 輪數", C.MaxRounds, "要刷幾輪（一輪 = 買齊 1 張已解讀 + 1 張未解讀（開 SaddlebagMap 時再加鞍囊 1 張）並全部挖完），0 = 無限循環", 0, 9999);
             C.MaxMaps = Int("MaxMaps 張數", C.MaxMaps, "本次最多跑幾張，0 = 不限", 0, 9999);
             C.RotationPlugin = Choice("RotationPlugin 輸出", C.RotationPlugin, ["Auto", "RotationSolver", "WrathCombo"], "自動輸出插件：Auto（有 RotationSolver Reborn 用 RSR，否則用 Wrath Combo）");
             C.BossModPlugin = Choice("BossModPlugin 閃避", C.BossModPlugin, ["Auto", "BossMod", "BossModReborn"], "閃避插件：Auto（有 BossMod 用 BossMod，否則用 BossMod Reborn）。只開 AI 閃避，寶物庫內才開");
@@ -213,6 +213,7 @@ public sealed class AutoTab : IDisposable
         if (ImGui.CollapsingHeader("買圖"))
         {
             C.AutoBuy = Bool("AutoBuy 自動買圖", C.AutoBuy, "圖不夠時自動到市場板買圖（維持身上 1 張已解讀 + 1 張未解讀）。事前記得在市場板把要買的地圖加入「我的最愛」");
+            C.SaddlebagMap = Bool("SaddlebagMap 陸行鳥鞍囊放一張", C.SaddlebagMap, "（測試）一輪多買一張放進陸行鳥鞍囊：買齊 1 張已解讀 + 背包 1 張 + 鞍囊 1 張再出發，背包和已解讀的挖完後從鞍囊拿出來挖。鞍囊要有空格");
             C.MaxMapPrice = Int("MaxMapPrice 每張上限", C.MaxMapPrice, "每張圖最多付多少 gil（自動買圖時必填，0 = 未設定，開始時會停止）");
             C.GilFloor = Int("GilFloor 保留 gil", C.GilFloor, "買完後身上至少保留多少 gil");
             C.CrossWorld = Bool("CrossWorld 跨伺服器", C.CrossWorld, "每次買圖前查 Universalis，傳送到資料中心內地圖最便宜的伺服器買圖並挖寶（需要 Lifestream）");
